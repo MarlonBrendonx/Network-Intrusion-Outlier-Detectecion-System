@@ -1,0 +1,46 @@
+[project]
+name = "niod"
+version = "1.0.0"
+description = "Network Intrusion Outlier Detection — Framework para detecção de anomalias em tráfego de rede"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scikit-learn>=1.3",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
+    "umap-learn>=0.5",
+    "joblib>=1.3",
+    "tqdm>=4.65",
+]
+
+[project.scripts]
+niod = "niod.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = ["E501"]  # line too long handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["niod"]
+
+[tool.setuptools]
+packages = ["niod"]

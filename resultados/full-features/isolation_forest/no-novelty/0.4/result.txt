@@ -1,0 +1,93 @@
+python -m niod --algorithm isolation_forest --no-novelty --contamination 0.4 --skip-umap
+INFO:niod:======================================================================
+INFO:niod:NIOD — Network Intrusion Outlier Detection
+INFO:niod:======================================================================
+INFO:niod:Algoritmo:   isolation_forest
+INFO:niod:Novelty:     False
+INFO:niod:Hyper Search: True
+INFO:niod:Dataset:     data/Friday_balanceado.arff
+INFO:niod.utils.data:Carregando dataset: data/Friday_balanceado.arff
+INFO:niod:Shape final: (828644, 74) (removidas 0 linhas)
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Dividindo dados...
+INFO:niod.utils.data:Split — Treino: 414321 (60%) | Val: 69053 (10%) | Teste: 207161 (30%)
+INFO:niod.utils.data:X_train: (414321, 73)
+INFO:niod.utils.data:X_val:   (69053, 73)
+INFO:niod.utils.data:X_test:  (207161, 73)
+INFO:niod.utils.data:Proporção outliers — Treino: 0.4000 | Val: 0.4000 | Teste: 0.4000
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Iniciando busca de hiperparâmetros (isolation_forest)...
+INFO:niod.modules.evaluation:Grid Search para 'isolation_forest' — 180 combinações de hiperparâmetros.
+Treinando modelos: 100%|█████████████████████████████████████████████████████████████████████████████| 180/180 [10:13<00:00,  3.41s/it]
+INFO:niod.modules.evaluation:Melhor F1 encontrado: 0.4342 | Params: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 'auto', 'n_estimators': 100, 'bootstrap': False}
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — VALIDAÇÃO
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 'auto', 'n_estimators': 100, 'bootstrap': False}
+INFO:niod:F1 Score: 0.4342
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.58      0.77      0.66     41432
+Outlier (-1)       0.31      0.16      0.21     27621
+
+    accuracy                           0.53     69053
+   macro avg       0.45      0.46      0.43     69053
+weighted avg       0.47      0.53      0.48     69053
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[31962  9470]
+ [23328  4293]]
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Avaliação final no conjunto de TESTE...
+INFO:niod.modules.evaluation:PARAMS: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 'auto', 'n_estimators': 100, 'bootstrap': False}  →  F1: 0.4339
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — TESTE
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 'auto', 'n_estimators': 100, 'bootstrap': False}
+INFO:niod:F1 Score: 0.4339
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.58      0.77      0.66    124297
+Outlier (-1)       0.31      0.16      0.21     82864
+
+    accuracy                           0.52    207161
+   macro avg       0.44      0.46      0.43    207161
+weighted avg       0.47      0.52      0.48    207161
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[95666 28631]
+ [69937 12927]]
+INFO:niod:======================================================================
+INFO:niod:TESTE DE GENERALIZAÇÃO (CONCEPT DRIFT)
+INFO:niod:======================================================================
+INFO:niod.modules.generalization:Carregando dataset de generalização: data/Tuesday.arff
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+/home/mulder/miniconda3/lib/python3.13/site-packages/sklearn/utils/validation.py:2684: UserWarning: X has feature names, but SimpleImputer was fitted without feature names
+  warnings.warn(
+INFO:niod.modules.generalization:Realizando predição em 445645 amostras...
+INFO:niod.modules.generalization:Generalização funcional — Recall de ataque: 71.63%
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)     0.9886    0.7883    0.8772    431813
+ Ataque (-1)     0.0978    0.7163    0.1721     13832
+
+    accuracy                         0.7861    445645
+   macro avg     0.5432    0.7523    0.5246    445645
+weighted avg     0.9610    0.7861    0.8553    445645
+
+INFO:niod:Recall de ataque: 71.63% | Drift detectado: False
+INFO:niod:
+INFO:niod:======================================================================
+INFO:niod:Pipeline concluído com sucesso.
+INFO:niod:======================================================================
