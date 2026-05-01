@@ -1,0 +1,85 @@
+ python -m niod --algorithm lof --no-novelty  --no-filters --contamination 0.1 --skip-generalization --skip-umap --skip-pca
+INFO:niod:======================================================================
+INFO:niod:NIOD — Network Intrusion Outlier Detection
+INFO:niod:======================================================================
+INFO:niod:Algoritmo:   lof
+INFO:niod:Novelty:     False
+INFO:niod:Hyper Search: True
+INFO:niod:Filtros:     False
+INFO:niod:PCA reduce:  off
+INFO:niod:Domain feat: off
+INFO:niod:Dataset:     data/Friday_balanceado.arff
+INFO:niod.utils.data:Carregando dataset: data/Friday_balanceado.arff
+INFO:niod:Shape final: (828644, 74) (removidas 0 linhas)
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Dividindo dados...
+INFO:niod.utils.data:Split — Treino: 276214 (60%) | Val: 46035 (10%) | Teste: 138107 (30%)
+INFO:niod.utils.data:X_train: (276214, 73)
+INFO:niod.utils.data:X_val:   (46035, 73)
+INFO:niod.utils.data:X_test:  (138107, 73)
+INFO:niod.utils.data:Proporção outliers — Treino: 0.1000 | Val: 0.1000 | Teste: 0.1000
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Iniciando busca de hiperparâmetros (lof)...
+INFO:niod.modules.evaluation:Grid Search para 'lof' — 8 combinações de hiperparâmetros.
+Treinando modelos:   0%|                                                                                         | 0/8 [00:00<?, ?it/s]Treinando modelos:  50%|████████████████████████████████████████                                        | 4/8 [21:55<13:48, 207.01s/it]Treinando modelos: 100%|██████████████████████████████████████████████████████████████████████████████| 8/8 [1:34:01<00:00, 705.22s/it]
+INFO:niod.modules.evaluation:Melhor F1 encontrado: 0.4839 | Params: {'n_neighbors': 100, 'metric': 'euclidean', 'leaf_size': 30}
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — VALIDAÇÃO
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'n_neighbors': 100, 'metric': 'euclidean', 'leaf_size': 30}
+INFO:niod:F1 Score: 0.4839
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.90      0.89      0.89     41432
+Outlier (-1)       0.07      0.08      0.07      4603
+
+    accuracy                           0.81     46035
+   macro avg       0.48      0.48      0.48     46035
+weighted avg       0.81      0.81      0.81     46035
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[36944  4488]
+ [ 4256   347]]
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Avaliação final no conjunto de TESTE...
+INFO:niod.modules.evaluation:PARAMS: {'n_neighbors': 100, 'metric': 'euclidean', 'leaf_size': 30}  →  F1: 0.4827
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — TESTE
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'n_neighbors': 100, 'metric': 'euclidean', 'leaf_size': 30}
+INFO:niod:F1 Score: 0.4827
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.90      0.89      0.89    124297
+Outlier (-1)       0.07      0.07      0.07     13810
+
+    accuracy                           0.81    138107
+   macro avg       0.48      0.48      0.48    138107
+weighted avg       0.81      0.81      0.81    138107
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[110817  13480]
+ [ 12801   1009]]
+INFO:niod:======================================================================
+INFO:niod:PCA CROSS-DOMAIN (TREINO vs GENERALIZAÇÃO)
+INFO:niod:======================================================================
+INFO:niod:Carregando data/Tuesday.arff para PCA cross-domain...
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+INFO:niod:Generalização processada: 445909 amostras (Normal=432074, Ataque=13835)
+INFO:niod.visualization.pca_plot:PCA cross-domain — Friday Balanceado Normal: 5000 | Friday Balanceado Ataque: 5000 | Tuesday Normal: 5000 | Tuesday Ataque: 5000
+INFO:niod.visualization.pca_plot:PCA cross-domain — variância explicada: PC1=18.38% | PC2=9.93% | total=28.31%
+INFO:niod.visualization.pca_plot:Gráfico PCA cross-domain salvo em: pca_cross_Friday_balanceado_vs_Tuesday_raw.png
+INFO:niod:
+INFO:niod:======================================================================
+INFO:niod:Pipeline concluído com sucesso.
+INFO:niod:======================================================================

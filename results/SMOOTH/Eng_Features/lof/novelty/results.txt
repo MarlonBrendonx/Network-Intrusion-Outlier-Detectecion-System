@@ -1,0 +1,90 @@
+python -m niod --algorithm lof --skip-generalization --skip-umap --skip-pca
+INFO:niod:======================================================================
+INFO:niod:NIOD — Network Intrusion Outlier Detection
+INFO:niod:======================================================================
+INFO:niod:Algoritmo:   lof
+INFO:niod:Novelty:     True
+INFO:niod:Hyper Search: True
+INFO:niod:Filtros:     True
+INFO:niod:PCA reduce:  off
+INFO:niod:Domain feat: off
+INFO:niod:Dataset:     data/Friday_balanceado.arff
+INFO:niod.utils.data:Carregando dataset: data/Friday_balanceado.arff
+INFO:niod:Shape final: (828644, 74) (removidas 0 linhas)
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Dividindo dados...
+INFO:niod.utils.data:Normais: 414322 | Outliers: 414322
+INFO:niod.utils.data:X_train: (248593, 73)
+INFO:niod.utils.data:X_val:   (82864, 73)
+INFO:niod.utils.data:X_test:  (248594, 73)
+INFO:niod.utils.data:Proporção outliers — Treino: 0.0000 | Val: 0.5000 | Teste: 0.5000
+INFO:niod.utils.data:Filtros estatísticos — entrada: 73 colunas.
+INFO:niod.utils.data:  [1] Variância <= 0: 9 colunas descartadas (['Bwd PSH Flags', 'Fwd URG Flags', 'Bwd URG Flags', 'Fwd Avg Bytes/Bulk', 'Fwd Avg Packets/Bulk']...)
+INFO:niod.utils.data:  [2] Duplicatas literais: 3 colunas descartadas (['SYN Flag Count', 'ECE Flag Count', 'Avg Fwd Segment Size'])
+INFO:niod.utils.data:  [3] |ρ| > 0.95: 13 colunas descartadas (['Fwd IAT Total', 'Fwd IAT Max', 'Bwd IAT Total', 'Bwd IAT Max', 'Bwd Header Length']...)
+INFO:niod.utils.data:Filtros estatísticos — saída: 48 colunas (25 removidas, 34.2% do total).
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Iniciando busca de hiperparâmetros (lof)...
+INFO:niod.modules.evaluation:Grid Search para 'lof' — 8 combinações de hiperparâmetros.
+Treinando modelos:  12%|█████████▊                                                                    | 1/8 [12:55<1:30:31, 775.91s/it]Treinando modelos:  38%|██████████████████████████████                                                  | 3/8 [24:06<33:13, 398.64s/it]Treinando modelos: 100%|████████████████████████████████████████████████████████████████████████████████| 8/8 [50:13<00:00, 376.66s/it]
+INFO:niod.modules.evaluation:Melhor F1 encontrado: 0.8544 | Params: {'n_neighbors': 20, 'metric': 'manhattan', 'leaf_size': 30}
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — VALIDAÇÃO
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'n_neighbors': 20, 'metric': 'manhattan', 'leaf_size': 30}
+INFO:niod:F1 Score: 0.8544
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.84      0.88      0.86     41432
+Outlier (-1)       0.87      0.83      0.85     41432
+
+    accuracy                           0.85     82864
+   macro avg       0.86      0.85      0.85     82864
+weighted avg       0.86      0.85      0.85     82864
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[36432  5000]
+ [ 7054 34378]]
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Avaliação final no conjunto de TESTE...
+INFO:niod.modules.evaluation:PARAMS: {'n_neighbors': 20, 'metric': 'manhattan', 'leaf_size': 30}  →  F1: 0.8540
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — TESTE
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'n_neighbors': 20, 'metric': 'manhattan', 'leaf_size': 30}
+INFO:niod:F1 Score: 0.8540
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.84      0.88      0.86    124297
+Outlier (-1)       0.87      0.83      0.85    124297
+
+    accuracy                           0.85    248594
+   macro avg       0.85      0.85      0.85    248594
+weighted avg       0.85      0.85      0.85    248594
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[109184  15113]
+ [ 21153 103144]]
+INFO:niod:======================================================================
+INFO:niod:PCA CROSS-DOMAIN (TREINO vs GENERALIZAÇÃO)
+INFO:niod:======================================================================
+INFO:niod:Carregando data/Tuesday.arff para PCA cross-domain...
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+INFO:niod:Generalização processada: 445909 amostras (Normal=432074, Ataque=13835)
+INFO:niod.visualization.pca_plot:PCA cross-domain — Friday Balanceado Normal: 5000 | Friday Balanceado Ataque: 5000 | Tuesday Normal: 5000 | Tuesday Ataque: 5000
+INFO:niod.visualization.pca_plot:PCA cross-domain — variância explicada: PC1=14.84% | PC2=7.84% | total=22.68%
+INFO:niod.visualization.pca_plot:Gráfico PCA cross-domain salvo em: pca_cross_Friday_balanceado_vs_Tuesday_filtered.png
+INFO:niod:
+INFO:niod:======================================================================
+INFO:niod:Pipeline concluído com sucesso.
+INFO:niod:======================================================================

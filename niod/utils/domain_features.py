@@ -1,122 +1,354 @@
 """
-Feature engineering de domínio para detecção de intrusão de rede.
+Domain Features para CIC-IDS2017
+=================================
 
-Cada função adiciona uma feature derivada de razões entre colunas existentes,
-projetada para evidenciar padrões específicos de tráfego anômalo. A ideia é
-que essas razões são invariantes a escala (um ataque de 10 ou 10.000 pacotes
-pode ter a mesma "assinatura" proporcional), o que ajuda generalização.
+Sistema de registro de features de domínio que podem ser ativadas
+seletivamente via CLI (--domain-features NAME1 NAME2) ou em conjunto
+(--all-domain-features).
 
-As features são opt-in: só são adicionadas quando explicitamente pedidas
-via parâmetro `domain_features` em `prepare_splits` ou pela flag
-`--domain-features` na CLI.
+NOTA SOBRE NOMES DE COLUNAS:
+Este módulo é específico para o schema do projeto NIOD, onde algumas
+colunas do CIC-IDS2017 original foram renomeadas:
+    - 'Total Fwd Packets'              → 'Soma Fwd Packets'
+    - 'Total Length of Fwd Packets'    → 'Soma Length of Fwd Packets'
+    - 'Total Backward Packets'         → não existe (usa 'Subflow Bwd Packets')
+    - 'Total Length of Bwd Packets'    → não existe (usa 'Subflow Bwd Bytes')
+
+API esperada pelo pipeline:
+    - DOMAIN_FEATURES: dict[str, callable]  — registro de grupos
+    - add_domain_features(df, features=None) -> df  — aplica os grupos
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-EPSILON: float = 1e-6
+EPS = 1.0  # evita divisão por zero (1.0 mantém escala interpretável)
 
-# Mapeia nome curto da feature → (colunas requeridas, função de cálculo)
-# Cada entrada produz UMA coluna nova no DataFrame.
-
-
-def _eng_packet_shape(df: pd.DataFrame) -> pd.Series:
-    """
-    Eng_Packet_Shape = Fwd Packet Length Min / (Fwd Packet Length Max + ε)
-
-    Detecta scripts de automação que geram pacotes de tamanho idêntico:
-    quando Min ≈ Max, a razão tende a 1, indicando uniformidade artificial.
-    Tráfego humano legítimo tem variação maior, então Min << Max e a
-    razão fica próxima de 0.
-    """
-    return df["Fwd Packet Length Min"] / (df["Fwd Packet Length Max"] + EPSILON)
+# ─────────────────────────────────────────────────────────────────────────────
+# Aliases — nomes reais das colunas no schema do NIOD/CIC-IDS2017
+# ─────────────────────────────────────────────────────────────────────────────
+COL_FWD_PKTS = "Soma Fwd Packets"
+COL_BWD_PKTS = "Subflow Bwd Packets"  # proxy para "Total Backward Packets"
+COL_FWD_BYTES = "Soma Length of Fwd Packets"
+COL_BWD_BYTES = "Subflow Bwd Bytes"  # proxy para "Total Length of Bwd Packets"
 
 
-def _eng_fwd_header_load(df: pd.DataFrame) -> pd.Series:
-    """
-    Eng_Fwd_Header_Load = Fwd Header Length / (Subflow Fwd Bytes + ε)
-
-    Expõe ataques com muito cabeçalho e pouca carga útil:
-    valores altos indicam que o overhead de protocolo é desproporcional
-    aos dados transferidos — característico de port scans (cabeçalhos
-    SYN sem payload), reconhecimento e probes.
-    """
-    return df["Fwd Header Length"] / (df["Subflow Fwd Bytes"] + EPSILON)
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers internos
+# ─────────────────────────────────────────────────────────────────────────────
+def _safe_div(num: pd.Series, den: pd.Series) -> pd.Series:
+    """Divisão segura: substitui inf/-inf/NaN por 0."""
+    out = num / (den + EPS)
+    return out.replace([np.inf, -np.inf], 0).fillna(0)
 
 
-# Registry: nome -> (colunas necessárias, função)
-DOMAIN_FEATURES: dict[str, tuple[list[str], callable]] = {
-    "Eng_Packet_Shape": (
-        ["Fwd Packet Length Min", "Fwd Packet Length Max"],
-        _eng_packet_shape,
-    ),
-    "Eng_Fwd_Header_Load": (
-        ["Fwd Header Length", "Subflow Fwd Bytes"],
-        _eng_fwd_header_load,
-    ),
+def _has_cols(df: pd.DataFrame, cols: list[str]) -> bool:
+    """Confere se todas as colunas existem; loga em DEBUG se faltar."""
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        logger.debug("Colunas ausentes (pulando feature): %s", missing)
+        return False
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Packet_Shape — forma/proporção dos pacotes
+# Captura a "forma" da conversação independente do volume absoluto.
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_packet_shape(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    # Razão Bwd/Fwd em bytes — assimetria do payload
+    if _has_cols(df, [COL_BWD_BYTES, COL_FWD_BYTES]):
+        df["bytes_ratio_bwd_fwd"] = _safe_div(df[COL_BWD_BYTES], df[COL_FWD_BYTES])
+        added.append("bytes_ratio_bwd_fwd")
+
+    # Razão Bwd/Fwd em pacotes — simetria da conversa
+    if _has_cols(df, [COL_BWD_PKTS, COL_FWD_PKTS]):
+        df["pkts_ratio_bwd_fwd"] = _safe_div(df[COL_BWD_PKTS], df[COL_FWD_PKTS])
+        added.append("pkts_ratio_bwd_fwd")
+
+    # Tamanho médio de pacote por direção
+    if _has_cols(df, [COL_FWD_BYTES, COL_FWD_PKTS]):
+        df["avg_pkt_size_fwd"] = _safe_div(df[COL_FWD_BYTES], df[COL_FWD_PKTS])
+        added.append("avg_pkt_size_fwd")
+
+    if _has_cols(df, [COL_BWD_BYTES, COL_BWD_PKTS]):
+        df["avg_pkt_size_bwd"] = _safe_div(df[COL_BWD_BYTES], df[COL_BWD_PKTS])
+        added.append("avg_pkt_size_bwd")
+
+    # Razão entre tamanhos médios
+    if {"avg_pkt_size_fwd", "avg_pkt_size_bwd"}.issubset(df.columns):
+        df["pkt_size_ratio_bwd_fwd"] = _safe_div(
+            df["avg_pkt_size_bwd"], df["avg_pkt_size_fwd"]
+        )
+        added.append("pkt_size_ratio_bwd_fwd")
+
+    # Coeficiente de variação do tamanho de pacotes (homogeneidade)
+    # Tráfego automatizado tende a ter pacotes muito uniformes.
+    if _has_cols(df, ["Packet Length Std", "Packet Length Mean"]):
+        df["pkt_len_cv"] = _safe_div(df["Packet Length Std"], df["Packet Length Mean"])
+        added.append("pkt_len_cv")
+
+    # Razão min/max — fingerprint de protocolo
+    if _has_cols(df, ["Min Packet Length", "Max Packet Length"]):
+        df["pkt_len_min_max_ratio"] = _safe_div(
+            df["Min Packet Length"], df["Max Packet Length"]
+        )
+        added.append("pkt_len_min_max_ratio")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Fwd_Header_Load — overhead de cabeçalho
+# Razão entre bytes de cabeçalho e payload — handshakes/probes/scans
+# têm muito cabeçalho e pouco payload.
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_fwd_header_load(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    # Razão cabeçalho/payload em Fwd
+    if _has_cols(df, ["Fwd Header Length", COL_FWD_BYTES]):
+        df["fwd_header_to_payload_ratio"] = _safe_div(
+            df["Fwd Header Length"], df[COL_FWD_BYTES]
+        )
+        added.append("fwd_header_to_payload_ratio")
+
+    # Razão cabeçalho/payload em Bwd
+    if _has_cols(df, ["Bwd Header Length", COL_BWD_BYTES]):
+        df["bwd_header_to_payload_ratio"] = _safe_div(
+            df["Bwd Header Length"], df[COL_BWD_BYTES]
+        )
+        added.append("bwd_header_to_payload_ratio")
+
+    # Cabeçalho médio por pacote
+    if _has_cols(df, ["Fwd Header Length", COL_FWD_PKTS]):
+        df["fwd_header_per_pkt"] = _safe_div(df["Fwd Header Length"], df[COL_FWD_PKTS])
+        added.append("fwd_header_per_pkt")
+
+    if _has_cols(df, ["Bwd Header Length", COL_BWD_PKTS]):
+        df["bwd_header_per_pkt"] = _safe_div(df["Bwd Header Length"], df[COL_BWD_PKTS])
+        added.append("bwd_header_per_pkt")
+
+    # Razão pacotes-com-payload / total-pacotes-fwd
+    # Brute force tem muitos pacotes só de controle (handshakes, ACKs).
+    if _has_cols(df, ["act_data_pkt_fwd", COL_FWD_PKTS]):
+        df["fwd_data_pkt_ratio"] = _safe_div(df["act_data_pkt_fwd"], df[COL_FWD_PKTS])
+        added.append("fwd_data_pkt_ratio")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Temporal_Burstiness — regularidade temporal
+# CV dos IATs detecta automatização: ataques tendem a ter IATs muito
+# regulares (CV baixo) ou muito bursty (CV alto).
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_temporal_burstiness(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    if _has_cols(df, ["Fwd IAT Std", "Fwd IAT Mean"]):
+        df["fwd_iat_cv"] = _safe_div(df["Fwd IAT Std"], df["Fwd IAT Mean"])
+        added.append("fwd_iat_cv")
+
+    if _has_cols(df, ["Bwd IAT Std", "Bwd IAT Mean"]):
+        df["bwd_iat_cv"] = _safe_div(df["Bwd IAT Std"], df["Bwd IAT Mean"])
+        added.append("bwd_iat_cv")
+
+    if _has_cols(df, ["Flow IAT Std", "Flow IAT Mean"]):
+        df["flow_iat_cv"] = _safe_div(df["Flow IAT Std"], df["Flow IAT Mean"])
+        added.append("flow_iat_cv")
+
+    # Tempo médio por pacote (inverso da taxa global)
+    if _has_cols(df, ["Flow Duration", COL_FWD_PKTS, COL_BWD_PKTS]):
+        total_pkts = df[COL_FWD_PKTS] + df[COL_BWD_PKTS]
+        df["duration_per_pkt"] = _safe_div(df["Flow Duration"], total_pkts)
+        added.append("duration_per_pkt")
+
+    # Razão Active/Idle — captura cadência de brute force
+    # Brute force automatizado tem ciclos ativos curtos seguidos de idles
+    # regulares; tráfego humano tem padrão mais irregular.
+    if _has_cols(df, ["Active Mean", "Idle Mean"]):
+        df["active_idle_ratio"] = _safe_div(df["Active Mean"], df["Idle Mean"])
+        added.append("active_idle_ratio")
+
+    # Variabilidade do período ativo (CV)
+    if _has_cols(df, ["Active Std", "Active Mean"]):
+        df["active_cv"] = _safe_div(df["Active Std"], df["Active Mean"])
+        added.append("active_cv")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Flag_Density — densidade de flags TCP
+# Proporção de flags por pacote total. Brute force gera muitos handshakes
+# (SYN/ACK altos), DDoS SYN flood gera SYN próximo de 100%.
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_flag_density(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    if not _has_cols(df, [COL_FWD_PKTS, COL_BWD_PKTS]):
+        return added
+
+    total_pkts = df[COL_FWD_PKTS] + df[COL_BWD_PKTS]
+
+    # Flags TCP — todos os nomes correspondentes ao schema do NIOD
+    flag_cols = [
+        "SYN Flag Count",
+        "PSH Flag Count",
+        "ACK Flag Count",
+        "RST Flag Count",
+        "URG Flag Count",
+        "FIN Flag Count",
+        "ECE Flag Count",
+    ]
+
+    for flag in flag_cols:
+        if flag in df.columns:
+            feat_name = f"{flag.lower().replace(' ', '_')}_density"
+            df[feat_name] = _safe_div(df[flag], total_pkts)
+            added.append(feat_name)
+
+    # PSH/URG no Fwd separadamente (são contadores, não Count)
+    if _has_cols(df, ["Fwd PSH Flags", COL_FWD_PKTS]):
+        df["fwd_psh_density"] = _safe_div(df["Fwd PSH Flags"], df[COL_FWD_PKTS])
+        added.append("fwd_psh_density")
+
+    if _has_cols(df, ["Fwd URG Flags", COL_FWD_PKTS]):
+        df["fwd_urg_density"] = _safe_div(df["Fwd URG Flags"], df[COL_FWD_PKTS])
+        added.append("fwd_urg_density")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Flow_Indicators — indicadores binários e razões compostas
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_flow_indicators(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    # Fluxo unidirecional (sem resposta) — típico de SYN flood ou probe falho
+    if COL_BWD_PKTS in df.columns:
+        df["is_unidirectional"] = (df[COL_BWD_PKTS] == 0).astype(int)
+        added.append("is_unidirectional")
+
+    # Fluxo muito curto (< 100ms) — típico de probe/scan
+    if "Flow Duration" in df.columns:
+        # Flow Duration está em microssegundos no CIC-IDS2017
+        df["is_short_flow"] = (df["Flow Duration"] < 100_000).astype(int)
+        added.append("is_short_flow")
+
+    # Razão entre janelas TCP iniciais — fingerprint cliente/servidor
+    if _has_cols(df, ["Init_Win_bytes_forward", "Init_Win_bytes_backward"]):
+        df["init_win_ratio"] = _safe_div(
+            df["Init_Win_bytes_forward"].clip(lower=0),
+            df["Init_Win_bytes_backward"].clip(lower=0),
+        )
+        added.append("init_win_ratio")
+
+    # Razão de subflows
+    if _has_cols(df, ["Subflow Fwd Bytes", "Subflow Bwd Bytes"]):
+        df["subflow_bytes_ratio"] = _safe_div(
+            df["Subflow Bwd Bytes"], df["Subflow Fwd Bytes"]
+        )
+        added.append("subflow_bytes_ratio")
+
+    # Indicador: sessão tem janela TCP forward zerada (cliente fechou rápido)
+    if "Init_Win_bytes_forward" in df.columns:
+        df["init_win_fwd_is_zero"] = (df["Init_Win_bytes_forward"] <= 0).astype(int)
+        added.append("init_win_fwd_is_zero")
+
+    # min_seg_size_forward é um fingerprint do TCP MSS — vale como feature
+    # standalone, mas a razão com header capta o overhead relativo
+    if _has_cols(df, ["min_seg_size_forward", "Fwd Header Length"]):
+        df["fwd_min_seg_to_header"] = _safe_div(
+            df["min_seg_size_forward"], df["Fwd Header Length"]
+        )
+        added.append("fwd_min_seg_to_header")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Registro público — usado pelo CLI (--all-domain-features) e por
+# --domain-features NAME1 NAME2 ...
+# ─────────────────────────────────────────────────────────────────────────────
+DOMAIN_FEATURES: dict[str, Callable[[pd.DataFrame], list[str]]] = {
+    "Eng_Packet_Shape": _add_eng_packet_shape,
+    "Eng_Fwd_Header_Load": _add_eng_fwd_header_load,
+    "Eng_Temporal_Burstiness": _add_eng_temporal_burstiness,
+    "Eng_Flag_Density": _add_eng_flag_density,
+    "Eng_Flow_Indicators": _add_eng_flow_indicators,
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Função pública — chamada pelo pipeline (data.py / generalization.py)
+# ─────────────────────────────────────────────────────────────────────────────
 def add_domain_features(
     df: pd.DataFrame,
-    *,
-    features: list[str] | None = None,
+    features: Iterable[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Adiciona features de engenharia de domínio ao DataFrame.
+    Aplica grupos de domain features ao DataFrame.
 
-    Args:
-        df: DataFrame com as colunas brutas do CIC-IDS2017.
-        features: Lista de nomes a adicionar. Se None, adiciona TODAS
-                  as registradas em DOMAIN_FEATURES. Nomes inválidos
-                  são ignorados com aviso.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame com colunas originais do CIC-IDS2017 (schema NIOD).
+    features : iterable of str | None
+        Lista de nomes de grupos a aplicar. Se None ou vazio, retorna df
+        inalterado. Nomes desconhecidos geram warning e são ignorados.
 
-    Returns:
-        DataFrame com as colunas novas adicionadas. Retorna uma cópia
-        — não modifica o input.
+    Returns
+    -------
+    pd.DataFrame
+        Cópia do DataFrame com as features adicionadas.
     """
+    if not features:
+        return df
+
+    features = list(features)
+
+    logger.info("=" * 70)
+    logger.info("[domain_features] Aplicando grupos: %s", features)
+    logger.info("[domain_features] Shape de entrada: %s", df.shape)
+
     df = df.copy()
-
-    if features is None:
-        features = list(DOMAIN_FEATURES.keys())
-
-    added = []
-    skipped = []
+    n_before = df.shape[1]
 
     for name in features:
         if name not in DOMAIN_FEATURES:
-            logger.warning("Feature de domínio desconhecida: %r. Ignorando.", name)
-            continue
-
-        required_cols, fn = DOMAIN_FEATURES[name]
-        missing = [c for c in required_cols if c not in df.columns]
-        if missing:
             logger.warning(
-                "Feature %r requer colunas ausentes: %s. Pulando.",
+                "[domain_features] Grupo desconhecido '%s' — ignorando. "
+                "Disponíveis: %s",
                 name,
-                missing,
+                list(DOMAIN_FEATURES.keys()),
             )
-            skipped.append(name)
             continue
 
-        df[name] = fn(df)
-        added.append(name)
-
-    # Tratar inf/NaN gerados pela divisão (caso ε não seja suficiente)
-    if added:
-        df[added] = df[added].replace([np.inf, -np.inf], np.nan).fillna(0)
+        added = DOMAIN_FEATURES[name](df)
+        logger.info(
+            "[domain_features] %s: %d features adicionadas (%s)",
+            name,
+            len(added),
+            added,
+        )
 
     logger.info(
-        "Feature engineering de domínio: %d adicionadas %s%s",
-        len(added),
-        added,
-        f" | %d puladas" % len(skipped) if skipped else "",
+        "[domain_features] Total: %d novas features. Shape de saída: %s",
+        df.shape[1] - n_before,
+        df.shape,
     )
+    logger.info("=" * 70)
 
     return df

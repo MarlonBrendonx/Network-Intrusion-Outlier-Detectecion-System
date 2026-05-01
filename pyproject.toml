@@ -41,6 +41,3 @@ ignore = ["E501"]  # line too long handled by formatter
 
 [tool.ruff.lint.isort]
 known-first-party = ["niod"]
-
-[tool.setuptools]
-packages = ["niod"]

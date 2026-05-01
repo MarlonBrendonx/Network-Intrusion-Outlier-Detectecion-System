@@ -22,7 +22,7 @@ ModelFactory = Callable[..., Any]
 
 def _create_lof(**params: Any) -> LocalOutlierFactor:
     """Factory para Local Outlier Factor com novelty=True por padrão."""
-    return LocalOutlierFactor(novelty=True, n_jobs=1, **params)
+    return LocalOutlierFactor(novelty=True, n_jobs=-1, **params)
 
 
 def _create_isolation_forest(**params: Any) -> IsolationForest:
@@ -54,7 +54,5 @@ def get_model_factory(name: str) -> ModelFactory:
     """
     if name not in MODEL_REGISTRY:
         available = ", ".join(MODEL_REGISTRY.keys())
-        raise KeyError(
-            f"Modelo '{name}' não encontrado. Disponíveis: {available}"
-        )
+        raise KeyError(f"Modelo '{name}' não encontrado. Disponíveis: {available}")
     return MODEL_REGISTRY[name]

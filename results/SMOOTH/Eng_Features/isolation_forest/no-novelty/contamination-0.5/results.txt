@@ -1,0 +1,97 @@
+python -m niod --algorithm isolation_forest --no-novelty --contamination 0.5 --skip-umap
+INFO:niod:======================================================================
+INFO:niod:NIOD — Network Intrusion Outlier Detection
+INFO:niod:======================================================================
+INFO:niod:Algoritmo:   isolation_forest
+INFO:niod:Novelty:     False
+INFO:niod:Hyper Search: True
+INFO:niod:Filtros:     True
+INFO:niod:Dataset:     data/Friday_balanceado.arff
+INFO:niod.utils.data:Carregando dataset: data/Friday_balanceado.arff
+INFO:niod:Shape final: (828644, 74) (removidas 0 linhas)
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Dividindo dados...
+INFO:niod.utils.data:Split — Treino: 497186 (60%) | Val: 82864 (10%) | Teste: 248594 (30%)
+INFO:niod.utils.data:X_train: (497186, 73)
+INFO:niod.utils.data:X_val:   (82864, 73)
+INFO:niod.utils.data:X_test:  (248594, 73)
+INFO:niod.utils.data:Proporção outliers — Treino: 0.5000 | Val: 0.5000 | Teste: 0.5000
+INFO:niod.utils.data:Filtros estatísticos — entrada: 73 colunas.
+INFO:niod.utils.data:  [1] Variância <= 0: 9 colunas descartadas (['Bwd PSH Flags', 'Fwd URG Flags', 'Bwd URG Flags', 'Fwd Avg Bytes/Bulk', 'Fwd Avg Packets/Bulk']...)
+INFO:niod.utils.data:  [2] Duplicatas literais: 3 colunas descartadas (['SYN Flag Count', 'ECE Flag Count', 'Avg Fwd Segment Size'])
+INFO:niod.utils.data:  [3] |ρ| > 0.95: 11 colunas descartadas (['Fwd IAT Total', 'Fwd IAT Max', 'Bwd Header Length', 'Avg Bwd Segment Size', 'Subflow Fwd Packets']...)
+INFO:niod.utils.data:Filtros estatísticos — saída: 50 colunas (23 removidas, 31.5% do total).
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Iniciando busca de hiperparâmetros (isolation_forest)...
+INFO:niod.modules.evaluation:Grid Search para 'isolation_forest' — 180 combinações de hiperparâmetros.
+Treinando modelos: 100%|█████████████████████████████████████████████████████████████████████████████| 180/180 [09:33<00:00,  3.19s/it]
+INFO:niod.modules.evaluation:Melhor F1 encontrado: 0.3745 | Params: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 4096, 'n_estimators': 200, 'bootstrap': False}
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — VALIDAÇÃO
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 4096, 'n_estimators': 200, 'bootstrap': False}
+INFO:niod:F1 Score: 0.3745
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.46      0.73      0.56     41432
+Outlier (-1)       0.33      0.13      0.19     41432
+
+    accuracy                           0.43     82864
+   macro avg       0.39      0.43      0.37     82864
+weighted avg       0.39      0.43      0.37     82864
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[30283 11149]
+ [36013  5419]]
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Avaliação final no conjunto de TESTE...
+INFO:niod.modules.evaluation:PARAMS: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 4096, 'n_estimators': 200, 'bootstrap': False}  →  F1: 0.3726
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — TESTE
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'contamination': 0.2, 'max_features': 0.5, 'max_samples': 4096, 'n_estimators': 200, 'bootstrap': False}
+INFO:niod:F1 Score: 0.3726
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.46      0.73      0.56    124297
+Outlier (-1)       0.32      0.13      0.18    124297
+
+    accuracy                           0.43    248594
+   macro avg       0.39      0.43      0.37    248594
+weighted avg       0.39      0.43      0.37    248594
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[ 90563  33734]
+ [108228  16069]]
+INFO:niod:======================================================================
+INFO:niod:TESTE DE GENERALIZAÇÃO (CONCEPT DRIFT)
+INFO:niod:======================================================================
+INFO:niod.modules.generalization:Carregando dataset de generalização: data/Tuesday.arff
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+INFO:niod.modules.generalization:Realizando predição em 445645 amostras...
+INFO:niod.modules.generalization:Generalização funcional — Recall de ataque: 71.26%
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)     0.9879    0.7513    0.8535    431813
+ Ataque (-1)     0.0841    0.7126    0.1504     13832
+
+    accuracy                         0.7501    445645
+   macro avg     0.5360    0.7319    0.5020    445645
+weighted avg     0.9598    0.7501    0.8317    445645
+
+INFO:niod:Recall de ataque: 71.26% | Drift detectado: False
+INFO:niod:
+INFO:niod:======================================================================
+INFO:niod:Pipeline concluído com sucesso.
+INFO:niod:======================================================================

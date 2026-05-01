@@ -88,13 +88,12 @@ class ExperimentConfig:
 # ---------------------------------------------------------------------------
 PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     Algorithm.LOF.value: {
-        "n_neighbors": [50, 100, 200, 500],
-        "metric": ["manhattan"],
-        "contamination": [0.1],
+        "n_neighbors": [20, 50, 100, 200],
+        "metric": ["manhattan", "euclidean"],
         "leaf_size": [30],
     },
     Algorithm.ISOLATION_FOREST.value: {
-        "contamination": [0.05, 0.1, 0.15, 0.2],
+        # "contamination": [0.05, 0.1, 0.15, 0.2],
         "max_features": [0.5, 0.8, 1.0],
         "max_samples": [1024, 4096, 8192, 16384, "auto"],
         "n_estimators": [100, 200, 300],
@@ -109,21 +108,7 @@ PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
 
 # Parâmetros default quando não há busca de hiperparâmetros
 DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    Algorithm.ISOLATION_FOREST.value: {
-        "contamination": 0.15,
-        "max_features": 1.0,
-        "max_samples": 8192,
-        "n_estimators": 100,
-        "bootstrap": False,
-    },
-    Algorithm.SVM.value: {
-        "kernel": "rbf",
-        "nu": 0.05,
-        "gamma": 0.8,
-    },
-    Algorithm.LOF.value: {
-        "n_neighbors": 50,
-        "metric": "manhattan",
-        "leaf_size": 30,
-    },
+    Algorithm.ISOLATION_FOREST.value: {},
+    Algorithm.SVM.value: {},
+    Algorithm.LOF.value: {},
 }

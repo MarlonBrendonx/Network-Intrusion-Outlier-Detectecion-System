@@ -2,7 +2,6 @@ README.md
 pyproject.toml
 niod/__init__.py
 niod/__main__.py
-niod/main-bkp.py
 niod/main.py
 niod.egg-info/PKG-INFO
 niod.egg-info/SOURCES.txt

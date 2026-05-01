@@ -7,6 +7,7 @@ busca de hiperparâmetros → teste de generalização → visualização UMAP.
 Uso:
     python -m niod.main
     python -m niod.main --algorithm svm --no-novelty --no-hyper-search
+    python -m niod.main --algorithm lof --skip-umap --all-domain-features
 """
 
 from __future__ import annotations
@@ -506,6 +507,34 @@ def _log_evaluation(stage: str, result: EvaluationResult) -> None:
     logger.info("\n%s", result.confusion_matrix)
 
 
+def _resolve_domain_features(args: argparse.Namespace) -> list[str] | None:
+    """
+    Resolve o valor final de domain_features a partir dos args do CLI.
+
+    Prioriza --all-domain-features sobre --domain-features.
+    Valida nomes contra o registro DOMAIN_FEATURES e aborta se houver
+    nomes desconhecidos (falha rápida — melhor que silenciar).
+    """
+    from niod.utils.domain_features import DOMAIN_FEATURES
+
+    if args.all_domain_features:
+        return list(DOMAIN_FEATURES.keys())
+
+    if not args.domain_features:
+        return None
+
+    # Validação: aborta se algum nome for desconhecido
+    unknown = [n for n in args.domain_features if n not in DOMAIN_FEATURES]
+    if unknown:
+        available = ", ".join(DOMAIN_FEATURES.keys())
+        raise SystemExit(
+            f"Erro: domain features desconhecidas: {unknown}. "
+            f"Disponíveis: {available}"
+        )
+
+    return args.domain_features
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -621,7 +650,9 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="NAME",
         help="Lista de features de domínio a adicionar. Nomes disponíveis: "
-        "Eng_Packet_Shape, Eng_Fwd_Header_Load. Ex: --domain-features Eng_Packet_Shape",
+        "Eng_Packet_Shape, Eng_Fwd_Header_Load, Eng_Temporal_Burstiness, "
+        "Eng_Flag_Density, Eng_Flow_Indicators. "
+        "Ex: --domain-features Eng_Packet_Shape Eng_Flag_Density",
     )
     parser.add_argument(
         "--all-domain-features",
@@ -643,13 +674,7 @@ def main() -> None:
     args = parse_args()
 
     pca_reduce_value = None if args.no_pca_reduce else args.pca_reduce
-
-    if args.all_domain_features:
-        from niod.utils.domain_features import DOMAIN_FEATURES
-
-        domain_features_value = list(DOMAIN_FEATURES.keys())
-    else:
-        domain_features_value = args.domain_features  # None ou lista
+    domain_features_value = _resolve_domain_features(args)
 
     config = ExperimentConfig(
         train_dataset=args.train_dataset,

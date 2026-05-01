@@ -1,0 +1,80 @@
+ python -m niod --algorithm lof --no-hyper-search --no-filters --skip-umap --pca-components 2
+INFO:niod:======================================================================
+INFO:niod:NIOD — Network Intrusion Outlier Detection
+INFO:niod:======================================================================
+INFO:niod:Algoritmo:   lof
+INFO:niod:Novelty:     True
+INFO:niod:Hyper Search: False
+INFO:niod:Filtros:     False
+INFO:niod:Dataset:     data/Friday_balanceado.arff
+INFO:niod.utils.data:Carregando dataset: data/Friday_balanceado.arff
+INFO:niod:Shape final: (828644, 74) (removidas 0 linhas)
+INFO:niod:----------------------------------------------------------------------
+INFO:niod:Dividindo dados...
+INFO:niod.utils.data:Normais: 414322 | Outliers: 414322
+INFO:niod.utils.data:X_train: (248593, 73)
+INFO:niod.utils.data:X_val:   (82864, 73)
+INFO:niod.utils.data:X_test:  (248594, 73)
+INFO:niod.utils.data:Proporção outliers — Treino: 0.0000 | Val: 0.5000 | Teste: 0.5000
+INFO:niod:Parâmetros fixos: {'n_neighbors': 50, 'metric': 'manhattan', 'leaf_size': 30, 'contamination': 0.1}
+INFO:niod.modules.evaluation:PARAMS: {'n_neighbors': 50, 'metric': 'manhattan', 'leaf_size': 30, 'contamination': 0.1}  →  F1: 0.7876
+INFO:niod:
+INFO:niod:==================================================
+INFO:niod:Resultado — TESTE
+INFO:niod:==================================================
+INFO:niod:Melhores parâmetros: {'n_neighbors': 50, 'metric': 'manhattan', 'leaf_size': 30, 'contamination': 0.1}
+INFO:niod:F1 Score: 0.7876
+INFO:niod:
+Relatório de Classificação:
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)       0.74      0.90      0.81    124297
+Outlier (-1)       0.87      0.68      0.76    124297
+
+    accuracy                           0.79    248594
+   macro avg       0.80      0.79      0.79    248594
+weighted avg       0.80      0.79      0.79    248594
+
+INFO:niod:Matriz de Confusão [Normal, Outlier]:
+INFO:niod:
+[[111670  12627]
+ [ 39557  84740]]
+INFO:niod:======================================================================
+INFO:niod:TESTE DE GENERALIZAÇÃO (CONCEPT DRIFT)
+INFO:niod:======================================================================
+INFO:niod.modules.generalization:Carregando dataset de generalização: data/Tuesday.arff
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+INFO:niod.modules.generalization:Realizando predição em 445645 amostras...
+INFO:niod.modules.generalization:Generalização funcional — Recall de ataque: 18.07%
+INFO:niod:
+              precision    recall  f1-score   support
+
+  Normal (1)     0.9678    0.7899    0.8699    431813
+ Ataque (-1)     0.0268    0.1807    0.0467     13832
+
+    accuracy                         0.7710    445645
+   macro avg     0.4973    0.4853    0.4583    445645
+weighted avg     0.9386    0.7710    0.8443    445645
+
+INFO:niod:Recall de ataque: 18.07% | Drift detectado: False
+INFO:niod:======================================================================
+INFO:niod:VISUALIZAÇÃO PCA (2D)
+INFO:niod:======================================================================
+INFO:niod.visualization.pca_plot:PCA — entrada: 248594 amostras, 73 features (Normal=124297, Outlier=124297)
+INFO:niod.visualization.pca_plot:PCA — após subamostragem: 10000 Normal, 10000 Outlier
+INFO:niod.visualization.pca_plot:PCA — variância explicada por componente: ['18.05%', '10.50%'] | total: 28.55%
+INFO:niod.visualization.pca_plot:Gráfico PCA salvo em: pca_2d_test_raw.png
+INFO:niod:======================================================================
+INFO:niod:PCA CROSS-DOMAIN (TREINO vs GENERALIZAÇÃO)
+INFO:niod:======================================================================
+INFO:niod:Carregando data/Tuesday.arff para PCA cross-domain...
+INFO:niod.utils.data:Carregando dataset: data/Tuesday.arff
+INFO:niod.visualization.pca_plot:PCA cross-domain — Friday Balanceado Normal: 5000 | Friday Balanceado Ataque: 5000 | Tuesday Normal: 5000 | Tuesday Ataque: 
+5000
+INFO:niod.visualization.pca_plot:PCA cross-domain — variância explicada: PC1=16.97% | PC2=10.77% | total=27.74%
+INFO:niod.visualization.pca_plot:Gráfico PCA cross-domain salvo em: pca_cross_Friday_balanceado_vs_Tuesday_raw.png
+INFO:niod:
+INFO:niod:======================================================================
+INFO:niod:Pipeline concluído com sucesso.
+INFO:niod:======================================================================
