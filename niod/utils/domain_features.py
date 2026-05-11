@@ -279,6 +279,42 @@ def _add_eng_flow_indicators(df: pd.DataFrame) -> list[str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Grupo: Eng_Flow_Rates — taxa de pacotes e bytes por tempo
+# Assinatura volumétrica de DoS: floods geram taxa de pacotes/bytes muito
+# acima do tráfego normal. Slowloris gera taxa de bytes baixíssima por
+# tempo longo (keepalive malicioso).
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_eng_flow_rates(df: pd.DataFrame) -> list[str]:
+    added = []
+
+    if "Flow Duration" not in df.columns:
+        return added
+
+    duration = df["Flow Duration"]
+
+    if _has_cols(df, [COL_FWD_PKTS, COL_BWD_PKTS]):
+        total_pkts = df[COL_FWD_PKTS] + df[COL_BWD_PKTS]
+        df["pkt_rate"] = _safe_div(total_pkts, duration)
+        added.append("pkt_rate")
+
+        df["fwd_pkt_rate"] = _safe_div(df[COL_FWD_PKTS], duration)
+        added.append("fwd_pkt_rate")
+
+        df["bwd_pkt_rate"] = _safe_div(df[COL_BWD_PKTS], duration)
+        added.append("bwd_pkt_rate")
+
+    if _has_cols(df, [COL_FWD_BYTES, COL_BWD_BYTES]):
+        total_bytes = df[COL_FWD_BYTES] + df[COL_BWD_BYTES]
+        df["byte_rate"] = _safe_div(total_bytes, duration)
+        added.append("byte_rate")
+
+        df["fwd_byte_rate"] = _safe_div(df[COL_FWD_BYTES], duration)
+        added.append("fwd_byte_rate")
+
+    return added
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Registro público — usado pelo CLI (--all-domain-features) e por
 # --domain-features NAME1 NAME2 ...
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,6 +324,7 @@ DOMAIN_FEATURES: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "Eng_Temporal_Burstiness": _add_eng_temporal_burstiness,
     "Eng_Flag_Density": _add_eng_flag_density,
     "Eng_Flow_Indicators": _add_eng_flow_indicators,
+    "Eng_Flow_Rates": _add_eng_flow_rates,
 }
 
 

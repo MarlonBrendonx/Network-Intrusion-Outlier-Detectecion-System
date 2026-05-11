@@ -8,11 +8,12 @@ medindo a capacidade de generalização contra novos padrões de ataque.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import ks_2samp
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.pipeline import Pipeline
@@ -29,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class KSDriftResult:
+    """Resultado da análise KS por feature entre treino e generalização."""
+
+    statistics: dict[str, float]
+    drifted_features: list[str]
+    drift_ratio: float
+
+
+@dataclass
 class GeneralizationResult:
     """Resultado do teste de generalização."""
 
@@ -37,6 +47,40 @@ class GeneralizationResult:
     recall_attack: float
     drift_detected: bool
     n_samples: int
+    ks_result: KSDriftResult | None = field(default=None)
+
+
+def ks_drift_analysis(
+    X_train: np.ndarray,
+    X_gen: np.ndarray,
+    feature_names: list[str],
+    threshold: float = 0.3,
+) -> KSDriftResult:
+    """
+    Aplica o teste KS feature-a-feature entre tráfego normal do treino e da generalização.
+
+    Args:
+        X_train: Amostras normais do treino (já pré-processadas).
+        X_gen: Amostras normais do dataset de generalização (mesmo espaço).
+        feature_names: Nomes das features (ou "PC_i" quando PCA foi aplicado).
+        threshold: KS acima deste valor sinaliza drift naquela feature.
+
+    Returns:
+        KSDriftResult com estatísticas por feature e resumo de drift.
+    """
+    statistics: dict[str, float] = {}
+    for i, name in enumerate(feature_names):
+        stat, _ = ks_2samp(X_train[:, i], X_gen[:, i])
+        statistics[name] = round(float(stat), 4)
+
+    drifted = [name for name, stat in statistics.items() if stat > threshold]
+    drift_ratio = len(drifted) / len(feature_names) if feature_names else 0.0
+
+    return KSDriftResult(
+        statistics=statistics,
+        drifted_features=drifted,
+        drift_ratio=drift_ratio,
+    )
 
 
 def test_generalization(
@@ -49,6 +93,9 @@ def test_generalization(
     pca: object | None = None,
     domain_features: list[str] | None = None,
     drift_threshold: float = 0.1,
+    X_train_normal: np.ndarray | None = None,
+    ks_feature_names: list[str] | None = None,
+    ks_threshold: float = 0.3,
 ) -> GeneralizationResult:
     """
     Testa o modelo treinado contra um dataset de generalização.
@@ -68,9 +115,13 @@ def test_generalization(
         domain_features: Lista de features de domínio a adicionar antes do
             filtro. Deve ser idêntica à usada no treino para coerência.
         drift_threshold: Limiar de recall abaixo do qual se detecta drift.
+        X_train_normal: Amostras normais do treino (pré-processadas) para análise KS.
+            Quando fornecido, compara as distribuições feature-a-feature com as
+            amostras normais da generalização via teste KS.
+        ks_threshold: KS acima deste valor sinaliza drift naquela feature.
 
     Returns:
-        GeneralizationResult com métricas e diagnóstico de drift.
+        GeneralizationResult com métricas, diagnóstico de drift e análise KS opcional.
     """
     from niod.utils.domain_features import add_domain_features
 
@@ -153,10 +204,36 @@ def test_generalization(
             recall_attack * 100,
         )
 
+    # Análise KS: compara tráfego normal do treino vs generalização por feature
+    ks_result: KSDriftResult | None = None
+    if X_train_normal is not None and X_train_normal.shape[0] > 0:
+        X_gen_normal = X_clean[y_true == 1]
+        if len(X_gen_normal) > 0:
+            n_features = X_train_normal.shape[1]
+            if ks_feature_names and len(ks_feature_names) == n_features:
+                feature_names = ks_feature_names
+            else:
+                feature_names = [f"f_{i}" for i in range(n_features)]
+
+            ks_result = ks_drift_analysis(
+                X_train_normal,
+                X_gen_normal,
+                feature_names,
+                threshold=ks_threshold,
+            )
+            logger.info(
+                "KS Drift — Features com drift (KS > %.2f): %d/%d (%.1f%%)",
+                ks_threshold,
+                len(ks_result.drifted_features),
+                len(feature_names),
+                ks_result.drift_ratio * 100,
+            )
+
     return GeneralizationResult(
         report=report,
         confusion_matrix=cm,
         recall_attack=recall_attack,
         drift_detected=drift_detected,
         n_samples=len(X_clean),
+        ks_result=ks_result,
     )

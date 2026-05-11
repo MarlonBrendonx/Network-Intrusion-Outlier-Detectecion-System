@@ -22,7 +22,7 @@ ModelFactory = Callable[..., Any]
 
 def _create_lof(**params: Any) -> LocalOutlierFactor:
     """Factory para Local Outlier Factor com novelty=True por padrão."""
-    return LocalOutlierFactor(novelty=True, n_jobs=-1, **params)
+    return LocalOutlierFactor(novelty=True, n_jobs=13, **params)
 
 
 def _create_isolation_forest(**params: Any) -> IsolationForest:

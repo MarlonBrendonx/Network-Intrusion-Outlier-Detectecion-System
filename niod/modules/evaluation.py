@@ -195,7 +195,7 @@ def hyperparameters_search(
 
     # Execução paralela com progress bar
     with _tqdm_joblib(tqdm(desc="Treinando modelos", total=total)):
-        results: list[EvaluationResult] = Parallel(n_jobs=-1)(
+        results: list[EvaluationResult] = Parallel(n_jobs=n_jobs)(
             delayed(evaluate_model)(
                 model_factory,
                 params,

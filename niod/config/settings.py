@@ -29,6 +29,13 @@ class Algorithm(str, Enum):
     SVM = "svm"
 
 
+@unique
+class ClassificationAlgorithm(str, Enum):
+    """Algoritmos de classificação supervisionada suportados."""
+
+    XGBOOST = "xgboost"
+
+
 # ---------------------------------------------------------------------------
 # Configurações do experimento
 # ---------------------------------------------------------------------------
@@ -89,7 +96,7 @@ class ExperimentConfig:
 PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     Algorithm.LOF.value: {
         "n_neighbors": [20, 50, 100, 200],
-        "metric": ["manhattan", "euclidean"],
+        "metric": ["manhattan", "euclidean", "chebyshev"],
         "leaf_size": [30],
     },
     Algorithm.ISOLATION_FOREST.value: {
@@ -103,6 +110,17 @@ PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
         "kernel": ["rbf"],
         "nu": [0.05, 0.10, 0.15, 0.20],
         "gamma": ["scale", 0.1, 0.5, 1.0],
+    },
+}
+
+# Grids de hiperparâmetros para classificação supervisionada
+CLASSIFICATION_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
+    ClassificationAlgorithm.XGBOOST.value: {
+        "n_estimators": [200, 500],
+        "max_depth": [4, 6],
+        "learning_rate": [0.05, 0.1],
+        "subsample": [0.8],
+        "colsample_bytree": [0.8],
     },
 }
 

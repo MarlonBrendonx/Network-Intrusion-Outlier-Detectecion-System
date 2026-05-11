@@ -197,6 +197,18 @@ def run_generalization(
     logger.info("TESTE DE GENERALIZAÇÃO (CONCEPT DRIFT)")
     logger.info("=" * 70)
 
+    # Em modo novelty, X_train contém apenas amostras normais — ideal para KS.
+    X_train_normal = np.asarray(split_data.X_train)
+
+    # Resolve nomes das features para o relatório KS.
+    if split_data.pca is not None:
+        n = X_train_normal.shape[1]
+        ks_feature_names = [f"PC_{i}" for i in range(n)]
+    elif split_data.stat_filter is not None:
+        ks_feature_names = list(split_data.stat_filter.kept_columns)
+    else:
+        ks_feature_names = list(split_data.feature_columns)
+
     gen_result = test_generalization(
         pipeline=test_result.pipeline,
         generalization_path=config.generalization_dataset,
@@ -204,6 +216,9 @@ def run_generalization(
         stat_filter=split_data.stat_filter,
         pca=split_data.pca,
         domain_features=config.domain_features,
+        X_train_normal=X_train_normal,
+        ks_feature_names=ks_feature_names,
+        ks_threshold=0.1,
     )
 
     logger.info("\n%s", gen_result.report)
@@ -212,6 +227,21 @@ def run_generalization(
         gen_result.recall_attack * 100,
         gen_result.drift_detected,
     )
+
+    if gen_result.ks_result is not None:
+        ks = gen_result.ks_result
+        logger.info("-" * 50)
+        logger.info("KS DRIFT POR FEATURE (top drifted):")
+        top = sorted(ks.statistics.items(), key=lambda x: x[1], reverse=True)[:10]
+        for feat, stat in top:
+            marker = " ← DRIFT" if feat in ks.drifted_features else ""
+            logger.info("  %-40s KS=%.3f%s", feat, stat, marker)
+        logger.info(
+            "Features com drift: %d/%d (%.1f%%)",
+            len(ks.drifted_features),
+            len(ks.statistics),
+            ks.drift_ratio * 100,
+        )
 
     pipeline_result["generalization"] = gen_result
     return pipeline_result
@@ -422,6 +452,8 @@ def run_visualization(
     pipeline_result: dict,
     umap_train_path: Path | None = None,
     umap_target_path: Path | None = None,
+    *,
+    interactive: bool = False,
 ) -> dict:
     """
     Gera visualização UMAP 3D para análise de drift.
@@ -468,6 +500,7 @@ def run_visualization(
         train_dataset_path=umap_train,
         target_dataset_path=umap_target,
         config=config,
+        interactive=interactive,
     )
 
     pipeline_result["umap_path"] = output_path
@@ -583,6 +616,11 @@ def parse_args() -> argparse.Namespace:
         "--skip-umap",
         action="store_true",
         help="Pular geração de UMAP 3D",
+    )
+    parser.add_argument(
+        "--umap-interactive",
+        action="store_true",
+        help="Salvar UMAP 3D como HTML interativo (rotacionável no browser)",
     )
     parser.add_argument(
         "--skip-generalization",
@@ -716,7 +754,9 @@ def main() -> None:
 
     # 4. Visualização UMAP (opcional)
     if not args.skip_umap:
-        results = run_visualization(config, results)
+        results = run_visualization(
+            config, results, interactive=args.umap_interactive
+        )
 
     logger.info("")
     logger.info("=" * 70)
