@@ -83,6 +83,89 @@ def ks_drift_analysis(
     )
 
 
+def test_generalization_from_arrays(
+    pipeline: Pipeline,
+    X_gen: np.ndarray,
+    y_true: np.ndarray,
+    *,
+    X_gen_normal: np.ndarray | None = None,
+    X_train_normal: np.ndarray | None = None,
+    ks_feature_names: list[str] | None = None,
+    drift_threshold: float = 0.1,
+    ks_threshold: float = 0.3,
+) -> GeneralizationResult:
+    """
+    Avalia o modelo em dados já pré-processados (sem carregar arquivo).
+
+    Usado quando o holdout few-shot foi pré-processado durante o enrichment,
+    evitando re-aplicar o pipeline de transformação.
+
+    Args:
+        pipeline: Pipeline treinado (scaler + modelo).
+        X_gen: Features do holdout (pré-processadas).
+        y_true: Labels no formato sklearn: 1=normal, -1=ataque.
+        X_gen_normal: Amostras normais do holdout para análise KS (opcional).
+        X_train_normal: Amostras normais do treino para análise KS (opcional).
+        ks_feature_names: Nomes das features para o relatório KS.
+        drift_threshold: Recall abaixo do qual se detecta drift.
+        ks_threshold: KS acima do qual uma feature é marcada como drifted.
+
+    Returns:
+        GeneralizationResult com métricas e análise de drift.
+    """
+    logger.info("Realizando predição em %d amostras (holdout few-shot)...", len(X_gen))
+    y_pred = pipeline.predict(X_gen)
+
+    report = classification_report(
+        y_true,
+        y_pred,
+        labels=[1, -1],
+        target_names=["Normal (1)", "Ataque (-1)"],
+        digits=4,
+    )
+    cm = confusion_matrix(y_true, y_pred, labels=[1, -1])
+
+    attack_tp = cm[1][1]
+    attack_fn = cm[1][0]
+    recall_attack = attack_tp / (attack_tp + attack_fn) if (attack_tp + attack_fn) > 0 else 0.0
+
+    drift_detected = recall_attack < drift_threshold
+    if drift_detected:
+        logger.warning(
+            "CONCEPT DRIFT DETECTADO — Recall de ataque: %.2f%% (< %.0f%%)",
+            recall_attack * 100,
+            drift_threshold * 100,
+        )
+    else:
+        logger.info("Generalização funcional — Recall de ataque: %.2f%%", recall_attack * 100)
+
+    ks_result: KSDriftResult | None = None
+    if X_train_normal is not None and X_gen_normal is not None and len(X_gen_normal) > 0:
+        n_features = X_train_normal.shape[1]
+        feature_names = (
+            ks_feature_names
+            if ks_feature_names and len(ks_feature_names) == n_features
+            else [f"f_{i}" for i in range(n_features)]
+        )
+        ks_result = ks_drift_analysis(X_train_normal, X_gen_normal, feature_names, threshold=ks_threshold)
+        logger.info(
+            "KS Drift — Features com drift (KS > %.2f): %d/%d (%.1f%%)",
+            ks_threshold,
+            len(ks_result.drifted_features),
+            len(feature_names),
+            ks_result.drift_ratio * 100,
+        )
+
+    return GeneralizationResult(
+        report=report,
+        confusion_matrix=cm,
+        recall_attack=recall_attack,
+        drift_detected=drift_detected,
+        n_samples=len(X_gen),
+        ks_result=ks_result,
+    )
+
+
 def test_generalization(
     pipeline: Pipeline,
     generalization_path: Path,

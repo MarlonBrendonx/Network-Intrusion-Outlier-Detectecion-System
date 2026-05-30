@@ -574,6 +574,73 @@ def _split_standard(
 
 
 # ---------------------------------------------------------------------------
+# Enriquecimento do treino com normais de outro domínio
+# ---------------------------------------------------------------------------
+def load_extra_normal(
+    extra_path: Path,
+    stat_filter: Optional["StatisticalFilter"],
+    imputer: SimpleImputer,
+    feature_columns: pd.Index,
+    *,
+    domain_features: Optional[list[str]] = None,
+    pca: Optional[Any] = None,
+    label_column: str = "Label",
+) -> np.ndarray:
+    """
+    Carrega amostras normais de um dataset extra e aplica o mesmo
+    pré-processamento do treino (sem refitting — sem data leakage).
+
+    Args:
+        extra_path: Caminho do dataset extra (.arff).
+        stat_filter: Filtro estatístico fittado no treino.
+        imputer: Imputer fittado no treino.
+        feature_columns: Colunas esperadas (layout do treino).
+        domain_features: Features de domínio usadas no treino.
+        pca: PCA fittado no treino (ou None).
+        label_column: Nome da coluna de label.
+
+    Returns:
+        Array numpy com amostras normais pré-processadas.
+    """
+    from niod.utils.domain_features import add_domain_features
+
+    logger.info("Carregando normais extras de: %s", extra_path)
+    df = load_arff(extra_path)
+
+    if domain_features:
+        df = add_domain_features(df, features=domain_features)
+
+    # Filtra apenas amostras normais (label == 0)
+    if label_column in df.columns:
+        df = df[df[label_column] == 0].drop(columns=[label_column])
+    else:
+        logger.warning("Coluna '%s' não encontrada em %s — usando todas as linhas.", label_column, extra_path)
+
+    if len(df) == 0:
+        logger.warning("Nenhuma amostra normal encontrada em %s.", extra_path)
+        return np.empty((0, len(feature_columns)))
+
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna(axis=0, how="any")
+
+    # Garante o mesmo layout de colunas do treino
+    available = [c for c in feature_columns if c in df.columns]
+    df = df[available]
+
+    X = clean_features(df)
+
+    if stat_filter is not None:
+        X = stat_filter.transform(X)
+    X = apply_imputation(X, imputer, fit=False)
+    if pca is not None:
+        X = pca.transform(X)
+
+    X_arr = np.asarray(X)
+    logger.info("Normais extras carregadas: %d amostras", len(X_arr))
+    return X_arr
+
+
+# ---------------------------------------------------------------------------
 # Preparação para visualização (PCA/UMAP)
 # ---------------------------------------------------------------------------
 def prepare_data_for_visualization(

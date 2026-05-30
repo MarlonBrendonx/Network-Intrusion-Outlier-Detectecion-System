@@ -46,6 +46,9 @@ class ExperimentConfig:
     # --- Dados ---
     train_dataset: Path = Path("Friday_balanceado.arff")
     generalization_dataset: Path = Path("data/Tuesday.arff")
+    extra_normal_dataset: Path | None = None
+    few_shot_dataset: Path | None = None
+    few_shot_ratio: float = 0.05
 
     # --- Modo ---
     algorithm: Algorithm = Algorithm.ISOLATION_FOREST
@@ -128,5 +131,5 @@ CLASSIFICATION_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
 DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     Algorithm.ISOLATION_FOREST.value: {},
     Algorithm.SVM.value: {},
-    Algorithm.LOF.value: {},
+    Algorithm.LOF.value: {"n_neighbors": 20, "metric": "manhattan", "leaf_size": 30},
 }

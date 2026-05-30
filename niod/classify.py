@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from niod.config.settings import ClassificationAlgorithm, ExperimentConfig
 from niod.modules.classification import (
@@ -179,6 +180,135 @@ def run_classification_pipeline(
 
 
 # ---------------------------------------------------------------------------
+# Few-shot: enriquece o treino com poucos ataques do dataset alvo
+# ---------------------------------------------------------------------------
+def run_few_shot_enrichment(
+    few_shot_dataset: Path,
+    results: dict,
+    *,
+    ratio: float = 0.05,
+    domain_features: list[str] | None = None,
+    random_state: int = 42,
+) -> dict:
+    """
+    Adiciona uma pequena fração dos ataques do dataset alvo ao treino e retreina.
+
+    O restante do dataset (holdout) é armazenado em results['few_shot_holdout']
+    para ser usado na avaliação de generalização, garantindo que o modelo
+    não seja avaliado em amostras que viu no treino.
+
+    Args:
+        few_shot_dataset: Dataset alvo (ex: Tuesday.arff).
+        results: Resultado de run_classification_pipeline().
+        ratio: Fração dos ataques do alvo a incluir no treino (ex: 0.05 = 5%).
+        domain_features: Mesmas features de domínio usadas no treino.
+        random_state: Semente para reprodutibilidade.
+
+    Returns:
+        results atualizado com modelo retreinado e holdout armazenado.
+    """
+    from sklearn.metrics import classification_report, confusion_matrix, f1_score
+    from sklearn.utils import shuffle as sk_shuffle
+
+    from niod.utils.data import apply_imputation, clean_features, load_arff
+    from niod.utils.domain_features import add_domain_features
+
+    if not few_shot_dataset.exists():
+        logger.warning("Dataset few-shot não encontrado: %s. Pulando.", few_shot_dataset)
+        return results
+
+    logger.info("=" * 70)
+    logger.info("FEW-SHOT ENRICHMENT (ratio=%.0f%%)", ratio * 100)
+    logger.info("=" * 70)
+    logger.info("Fonte: %s", few_shot_dataset)
+
+    split_data = results["split"]
+
+    # Carrega e pré-processa o dataset alvo com o mesmo pipeline do treino
+    df = load_arff(few_shot_dataset)
+    if domain_features:
+        df = add_domain_features(df, features=domain_features)
+    df = df.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+    df_attacks = df[df["Label"] == 1]
+    df_normal = df[df["Label"] == 0]
+
+    # Separa few-shot (ratio) e holdout (1 - ratio) dos ataques
+    n_few_shot = max(1, int(len(df_attacks) * ratio))
+    df_attacks_shuffled = df_attacks.sample(frac=1, random_state=random_state)
+    df_few = df_attacks_shuffled.iloc[:n_few_shot]
+    df_holdout_attacks = df_attacks_shuffled.iloc[n_few_shot:]
+
+    # Holdout final = normais completas + ataques não usados no treino
+    df_holdout = pd.concat([df_normal, df_holdout_attacks])
+
+    logger.info(
+        "Ataques do alvo: %d total → %d few-shot | %d holdout",
+        len(df_attacks),
+        len(df_few),
+        len(df_holdout_attacks),
+    )
+
+    def _preprocess(df_subset: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        y = df_subset["Label"].values.astype(int)
+        X = df_subset.drop(columns=["Label"])
+        X = clean_features(X)
+        if split_data.stat_filter is not None:
+            X = split_data.stat_filter.transform(X)
+        X = apply_imputation(X, split_data.imputer, fit=False)
+        if split_data.pca is not None:
+            X = split_data.pca.transform(X)
+        return np.asarray(X), y
+
+    X_few, y_few = _preprocess(df_few)
+
+    # Enriquece X_train com os poucos ataques do alvo
+    X_train_enriched = np.vstack([split_data.X_train, X_few])
+    y_train_enriched = np.concatenate([split_data.y_train, y_few])
+
+    # Shuffle para não deixar os novos exemplos sempre no final
+    X_train_enriched, y_train_enriched = sk_shuffle(
+        X_train_enriched, y_train_enriched, random_state=random_state
+    )
+
+    logger.info(
+        "X_train: %d → %d amostras (+%d ataques de %s)",
+        len(split_data.X_train),
+        len(X_train_enriched),
+        len(X_few),
+        few_shot_dataset.stem,
+    )
+
+    # Retreina o modelo com o treino enriquecido
+    old_result: ClassificationResult = results["test"]
+    model_factory = get_classifier_factory("xgboost")
+    new_model = model_factory(**old_result.params)
+    new_model.fit(X_train_enriched, y_train_enriched)
+
+    # Reavalia no conjunto de teste original do Friday
+    y_test_pred = new_model.predict(split_data.X_test)
+    y_test = split_data.y_test
+    f1_test = f1_score(y_test, y_test_pred, labels=[0, 1], average="macro")
+    logger.info("F1 no teste Friday após few-shot: %.4f (antes: %.4f)", f1_test, old_result.f1)
+
+    # Atualiza o modelo nos results
+    results["test"] = ClassificationResult(
+        f1=f1_test,
+        params=old_result.params,
+        report=classification_report(y_test, y_test_pred, labels=[0, 1],
+                                     target_names=["Normal (0)", "Ataque (1)"]),
+        confusion_matrix=confusion_matrix(y_test, y_test_pred, labels=[0, 1]),
+        model=new_model,
+    )
+
+    # Armazena holdout pré-processado para avaliação de generalização
+    X_holdout, y_holdout = _preprocess(df_holdout)
+    results["few_shot_holdout"] = {"X": X_holdout, "y": y_holdout}
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Generalização (concept drift) — prediz no dataset de generalização
 # ---------------------------------------------------------------------------
 def run_classification_generalization(
@@ -200,33 +330,41 @@ def run_classification_generalization(
     split_data = results["split"]
     test_result: ClassificationResult = results["test"]
 
-    if not generalization_dataset.exists():
-        logger.warning(
-            "Dataset de generalização não encontrado: %s. Pulando.",
-            generalization_dataset,
-        )
-        return results
-
     logger.info("=" * 70)
     logger.info("GENERALIZAÇÃO (CONCEPT DRIFT)")
     logger.info("=" * 70)
-    logger.info("Carregando %s...", generalization_dataset)
 
-    df_gen = load_arff(generalization_dataset)
+    # Se few-shot foi executado, usa o holdout (amostras não vistas no treino)
+    if "few_shot_holdout" in results:
+        holdout = results["few_shot_holdout"]
+        X_gen = holdout["X"]
+        y_gen = holdout["y"]
+        logger.info("Usando holdout few-shot (%d amostras) para avaliação.", len(X_gen))
+    else:
+        if not generalization_dataset.exists():
+            logger.warning(
+                "Dataset de generalização não encontrado: %s. Pulando.",
+                generalization_dataset,
+            )
+            return results
 
-    if domain_features:
-        df_gen = add_domain_features(df_gen, features=domain_features)
+        logger.info("Carregando %s...", generalization_dataset)
 
-    df_gen = df_gen.replace([np.inf, -np.inf], np.nan).dropna(how="all")
-    y_gen = df_gen["Label"].values.astype(int)
-    X_gen = df_gen.drop(columns=["Label"])
+        df_gen = load_arff(generalization_dataset)
 
-    X_gen = clean_features(X_gen)
-    if split_data.stat_filter is not None:
-        X_gen = split_data.stat_filter.transform(X_gen)
-    X_gen = apply_imputation(X_gen, split_data.imputer, fit=False)
-    if split_data.pca is not None:
-        X_gen = split_data.pca.transform(X_gen)
+        if domain_features:
+            df_gen = add_domain_features(df_gen, features=domain_features)
+
+        df_gen = df_gen.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+        y_gen = df_gen["Label"].values.astype(int)
+        X_gen = df_gen.drop(columns=["Label"])
+
+        X_gen = clean_features(X_gen)
+        if split_data.stat_filter is not None:
+            X_gen = split_data.stat_filter.transform(X_gen)
+        X_gen = apply_imputation(X_gen, split_data.imputer, fit=False)
+        if split_data.pca is not None:
+            X_gen = split_data.pca.transform(X_gen)
 
     logger.info("Realizando predição em %d amostras...", len(X_gen))
     y_pred = test_result.model.predict(X_gen)
@@ -339,6 +477,21 @@ def parse_args() -> argparse.Namespace:
         help="Pular teste de generalização no dataset secundário",
     )
     parser.add_argument(
+        "--few-shot-dataset",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Dataset alvo para few-shot (ex: data/Tuesday.arff). Uma fração "
+        "dos ataques é adicionada ao treino; o restante vira holdout de avaliação.",
+    )
+    parser.add_argument(
+        "--few-shot-ratio",
+        type=float,
+        default=0.05,
+        metavar="RATIO",
+        help="Fração dos ataques do dataset alvo a incluir no treino (padrão: 0.05 = 5%%)",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -367,6 +520,14 @@ def main() -> None:
         pca_reduce=args.pca_reduce,
         log_level=args.log_level,
     )
+
+    if args.few_shot_dataset is not None:
+        results = run_few_shot_enrichment(
+            few_shot_dataset=args.few_shot_dataset,
+            results=results,
+            ratio=args.few_shot_ratio,
+            domain_features=domain_features,
+        )
 
     if not args.skip_generalization:
         results = run_classification_generalization(
