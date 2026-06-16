@@ -131,5 +131,5 @@ CLASSIFICATION_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
 DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     Algorithm.ISOLATION_FOREST.value: {},
     Algorithm.SVM.value: {},
-    Algorithm.LOF.value: {"n_neighbors": 20, "metric": "manhattan", "leaf_size": 30},
+    Algorithm.LOF.value: {},
 }
