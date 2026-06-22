@@ -33,9 +33,34 @@ scripts/
 └── generate_scree_pca.py  # Scree plot + variância acumulada para justificar nº de componentes
 ```
 
-## Uso
+## Como executar
 
-### Pipeline não supervisionado (outlier/novelty detection)
+### 1. Requisitos
+
+- Python **>= 3.10**
+- Os datasets `.arff` na pasta `data/` (não versionada). O pipeline espera, por padrão:
+  - `data/Friday_balanceado.arff` — dataset de treino
+  - `data/Tuesday.arff` — dataset alvo para avaliação de generalização / few-shot
+
+### 2. Instalação
+
+```bash
+# Criar e ativar o ambiente virtual
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+# Instalar o pacote em modo editável
+pip install -e .
+
+# (Opcional) incluir suporte a gráficos PCA interativos (--pca-cross-interactive)
+pip install -e ".[interactive]"
+```
+
+A instalação registra o comando `niod` (equivalente a `python -m niod`) e instala todas
+as dependências declaradas no `pyproject.toml` (numpy, pandas, scikit-learn, scipy,
+matplotlib, joblib, tqdm, xgboost, imbalanced-learn).
+
+### 3. Pipeline não supervisionado (outlier/novelty detection)
 
 ```bash
 # Pipeline completo (default: Isolation Forest + novelty + grid search)
@@ -64,7 +89,7 @@ python -m niod --skip-pca --skip-pca-cross
 python -m niod --log-level DEBUG
 ```
 
-### Pipeline supervisionado (classificação)
+### 4. Pipeline supervisionado (classificação)
 
 ```bash
 # Classificação com XGBoost + grid search
@@ -75,6 +100,34 @@ python -m niod.classify --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.
 
 # Com features de domínio e sem busca de hiperparâmetros
 python -m niod.classify --all-domain-features --no-hyper-search
+```
+
+### 5. Scripts auxiliares
+
+```bash
+# Inspecionar o balanço de classes de um dataset (e gerar versão balanceada via SMOTE)
+python scripts/check_balancing.py --smote
+
+# Gerar scree plot + variância acumulada do PCA (salvos em docs/)
+python scripts/generate_scree_pca.py --train-dataset data/Friday_balanceado.arff
+```
+
+### 6. Saídas
+
+- **Métricas** (F1, classification report, matriz de confusão) são impressas via `logging`
+  no terminal — ajuste a verbosidade com `--log-level`.
+- **Figuras PCA** (`pca_2d_test_*.png`, `pca_cross_*.png`) são salvas no diretório de
+  execução. Com `--pca-cross-interactive` é gerado um HTML rotacionável (requer o extra
+  `interactive`).
+- As figuras dos scripts auxiliares (`pca_scree.png`, `pca_cumulativa.png`) vão para `docs/`.
+
+> Diretórios `data/`, `results/`, `*.png` e artefatos de build são ignorados pelo git.
+
+Ver todas as opções de cada CLI:
+
+```bash
+python -m niod --help
+python -m niod.classify --help
 ```
 
 ## Algoritmos Suportados
