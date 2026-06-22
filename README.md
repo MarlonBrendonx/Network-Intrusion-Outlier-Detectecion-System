@@ -2,7 +2,6 @@
 
 Framework para detecção de anomalias em tráfego de rede usando técnicas de
 **novelty/outlier detection** (não supervisionado) e **classificação supervisionada**,
-com foco em avaliação de generalização sob *concept drift* (CICIDS Friday → Tuesday).
 
 ## Arquitetura
 
@@ -154,17 +153,3 @@ Grupos engenheirados disponíveis (via `--domain-features <GRUPO>` ou `--all-dom
 `Eng_Flag_Density`, `Eng_Flow_Indicators`, `Eng_Flow_Rates`.
 
 Também é possível ativar features individuais (ex.: `--domain-features is_short_flow is_unidirectional`).
-
-## Princípios de engenharia
-
-### Integridade dos dados
-- **Sem data leakage**: scaler/imputer/PCA fitados SOMENTE no treino e aplicados a val/teste/generalização.
-- **Estado encapsulado** em dataclasses (`ExperimentConfig`, `EvaluationResult`, `SplitData`).
-
-### Reprodutibilidade
-- `random_state` propagado consistentemente em splits e modelos.
-- Configuração centralizada em `ExperimentConfig` (sem valores hardcoded).
-
-### Performance
-- Grid search paralelo com `joblib` + `tqdm`.
-- Figuras fechadas após salvar (`plt.close()`) evitando memory leaks.
