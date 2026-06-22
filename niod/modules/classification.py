@@ -1,12 +1,3 @@
-"""
-Avaliação e busca de hiperparâmetros para classificação supervisionada.
-
-Paralelo ao evaluation.py (anomalia), mas:
-- fit(X_train, y_train) com labels 0/1
-- predict(X_test) retorna 0/1
-- Sem RobustScaler (XGBoost é baseado em árvores, invariante a escala)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -26,13 +17,8 @@ from niod.config.settings import CLASSIFICATION_PARAM_GRIDS
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Resultado da classificação
-# ---------------------------------------------------------------------------
 @dataclass
 class ClassificationResult:
-    """Resultado estruturado de uma avaliação de classificador."""
-
     f1: float
     params: dict[str, Any]
     report: str
@@ -40,9 +26,6 @@ class ClassificationResult:
     model: Any
 
 
-# ---------------------------------------------------------------------------
-# Factory de modelos supervisionados
-# ---------------------------------------------------------------------------
 def _create_xgboost(**params: Any) -> XGBClassifier:
     return XGBClassifier(
         random_state=42,
@@ -65,9 +48,6 @@ def get_classifier_factory(name: str):
     return CLASSIFICATION_MODEL_REGISTRY[name]
 
 
-# ---------------------------------------------------------------------------
-# Avaliação de modelo individual
-# ---------------------------------------------------------------------------
 def evaluate_classifier(
     model_factory,
     params: dict[str, Any],
@@ -78,21 +58,6 @@ def evaluate_classifier(
     *,
     verbose: bool = True,
 ) -> ClassificationResult:
-    """
-    Treina e avalia um classificador supervisionado.
-
-    Args:
-        model_factory: Callable que cria o modelo com os parâmetros dados.
-        params: Hiperparâmetros do modelo.
-        X_train: Dados de treino (ambas as classes).
-        y_train: Labels de treino (0=Normal, 1=Ataque).
-        X_test: Dados de teste.
-        y_test: Labels de teste (0=Normal, 1=Ataque).
-        verbose: Se True, loga o F1 durante a avaliação.
-
-    Returns:
-        ClassificationResult com métricas e modelo treinado.
-    """
     model = model_factory(**params)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -120,9 +85,6 @@ def evaluate_classifier(
     )
 
 
-# ---------------------------------------------------------------------------
-# Tqdm + joblib
-# ---------------------------------------------------------------------------
 import contextlib
 
 
@@ -142,9 +104,6 @@ def _tqdm_joblib(tqdm_object: tqdm):
         tqdm_object.close()
 
 
-# ---------------------------------------------------------------------------
-# Grid Search
-# ---------------------------------------------------------------------------
 def hyperparameters_search_classifier(
     algorithm_name: str,
     X_train: np.ndarray,
@@ -154,23 +113,6 @@ def hyperparameters_search_classifier(
     *,
     n_jobs: int = 8,
 ) -> ClassificationResult:
-    """
-    Busca exaustiva de hiperparâmetros via Grid Search paralelo.
-
-    Avalia todas as combinações do CLASSIFICATION_PARAM_GRID no conjunto
-    de validação (nunca no teste).
-
-    Args:
-        algorithm_name: Nome do algoritmo (chave em CLASSIFICATION_PARAM_GRIDS).
-        X_train: Dados de treino.
-        y_train: Labels de treino (0/1).
-        X_val: Dados de validação.
-        y_val: Labels de validação (0/1).
-        n_jobs: Número de jobs paralelos.
-
-    Returns:
-        ClassificationResult do melhor modelo encontrado.
-    """
     if algorithm_name not in CLASSIFICATION_PARAM_GRIDS:
         raise KeyError(
             f"Grid não definido para '{algorithm_name}'. "

@@ -1,11 +1,3 @@
-"""
-Configurações centralizadas do pipeline NIOD.
-
-Todas as constantes e hiperparâmetros ficam aqui, evitando valores
-hardcoded espalhados pelo código. Usa dataclasses para validação
-e imutabilidade controlada.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -17,13 +9,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
 @unique
 class Algorithm(str, Enum):
-    """Algoritmos de detecção de anomalia suportados."""
-
     ISOLATION_FOREST = "isolation_forest"
     LOF = "lof"
     SVM = "svm"
@@ -31,26 +18,17 @@ class Algorithm(str, Enum):
 
 @unique
 class ClassificationAlgorithm(str, Enum):
-    """Algoritmos de classificação supervisionada suportados."""
-
     XGBOOST = "xgboost"
 
 
-# ---------------------------------------------------------------------------
-# Configurações do experimento
-# ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ExperimentConfig:
-    """Parâmetros globais de um experimento de detecção de anomalias."""
-
-    # --- Dados ---
     train_dataset: Path = Path("Friday_balanceado.arff")
     generalization_dataset: Path = Path("data/Tuesday.arff")
     extra_normal_dataset: Path | None = None
     few_shot_dataset: Path | None = None
     few_shot_ratio: float = 0.05
 
-    # --- Modo ---
     algorithm: Algorithm = Algorithm.ISOLATION_FOREST
     novelty: bool = True
     hyper_search: bool = True
@@ -59,19 +37,10 @@ class ExperimentConfig:
     pca_reduce: int | None = None
     domain_features: list[str] | None = None
 
-    # --- Split ---
     train_size: float = 0.6
-    val_ratio: float = 0.25  # proporção val dentro do restante (1 - train_size)
+    val_ratio: float = 0.25
     random_state: int = 42
 
-    # --- UMAP ---
-    umap_n_components: int = 3
-    umap_n_neighbors: int = 30
-    umap_min_dist: float = 0.1
-    umap_metric: str = "euclidean"
-    umap_sample_size: int = 5000
-
-    # --- Logging ---
     log_level: str = "INFO"
 
     def __post_init__(self) -> None:
@@ -93,17 +62,18 @@ class ExperimentConfig:
         return self.generalization_dataset.stem
 
 
-# ---------------------------------------------------------------------------
-# Grids de hiperparâmetros
-# ---------------------------------------------------------------------------
 PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     Algorithm.LOF.value: {
-        "n_neighbors": [20, 50, 100, 200],
-        "metric": ["manhattan", "euclidean", "chebyshev"],
-        "leaf_size": [30],
+        "n_neighbors": [10, 20, 35, 50, 100],
+        "metric": ["manhattan", "euclidean"],
+        "contamination": [
+            0.05,
+            0.1,
+            0.15,
+        ],
     },
     Algorithm.ISOLATION_FOREST.value: {
-        # "contamination": [0.05, 0.1, 0.15, 0.2],
+        "contamination": [0.05, 0.1, 0.15, 0.2],
         "max_features": [0.5, 0.8, 1.0],
         "max_samples": [1024, 4096, 8192, 16384, "auto"],
         "n_estimators": [100, 200, 300],
@@ -116,7 +86,6 @@ PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     },
 }
 
-# Grids de hiperparâmetros para classificação supervisionada
 CLASSIFICATION_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     ClassificationAlgorithm.XGBOOST.value: {
         "n_estimators": [200, 500],
@@ -127,9 +96,8 @@ CLASSIFICATION_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     },
 }
 
-# Parâmetros default quando não há busca de hiperparâmetros
 DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     Algorithm.ISOLATION_FOREST.value: {},
     Algorithm.SVM.value: {},
-    Algorithm.LOF.value: {},
+    Algorithm.LOF.value: {"n_neighbors": 20, "metric": "euclidean", "leaf_size": 30},
 }

@@ -1,12 +1,3 @@
-"""
-Avaliação de modelos e busca de hiperparâmetros.
-
-Responsabilidades:
-- Treinar e avaliar um modelo com métricas padrão.
-- Grid search paralelo com progress bar.
-- Retornar resultados estruturados (sem side effects).
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -33,13 +24,8 @@ from niod.modules.models import ModelFactory, get_model_factory
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Resultado da avaliação
-# ---------------------------------------------------------------------------
 @dataclass
 class EvaluationResult:
-    """Resultado estruturado de uma avaliação de modelo."""
-
     f1: float
     params: dict[str, Any]
     report: str
@@ -47,9 +33,6 @@ class EvaluationResult:
     pipeline: Pipeline
 
 
-# ---------------------------------------------------------------------------
-# Avaliação de modelo individual
-# ---------------------------------------------------------------------------
 def evaluate_model(
     model_factory: ModelFactory,
     params: dict[str, Any],
@@ -59,23 +42,6 @@ def evaluate_model(
     *,
     verbose: bool = True,
 ) -> EvaluationResult:
-    """
-    Treina e avalia um modelo dentro de um Pipeline (Scaler → Modelo).
-
-    O Pipeline garante que o scaler é fitado apenas no treino e aplicado
-    consistentemente no teste (sem data leakage).
-
-    Args:
-        model_factory: Callable que cria o modelo com os parâmetros dados.
-        params: Hiperparâmetros do modelo.
-        X_train: Dados de treino (já imputados).
-        X_test: Dados de teste (já imputados).
-        y_test_transformed: Labels do teste no formato 1/-1.
-        verbose: Se True, imprime o F1 durante a avaliação.
-
-    Returns:
-        EvaluationResult com métricas e pipeline treinado.
-    """
     pipeline = Pipeline(
         [
             ("scaler", RobustScaler()),
@@ -88,7 +54,6 @@ def evaluate_model(
     is_novelty = getattr(estimator, "novelty", False)
 
     if is_lof and not is_novelty:
-        # LOF padrão: fit_predict no teste (ignora treino)
         logger.debug("[LOF] Modo Outlier Detection (fit_predict no teste)")
         y_pred = pipeline.fit_predict(X_test)
     else:
@@ -124,13 +89,8 @@ def evaluate_model(
     )
 
 
-# ---------------------------------------------------------------------------
-# Tqdm + joblib integration
-# ---------------------------------------------------------------------------
 @contextlib.contextmanager
 def _tqdm_joblib(tqdm_object: tqdm):
-    """Context manager para integrar tqdm com joblib Parallel."""
-
     class TqdmCallback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
             tqdm_object.update(n=self.batch_size)
@@ -145,33 +105,14 @@ def _tqdm_joblib(tqdm_object: tqdm):
         tqdm_object.close()
 
 
-# ---------------------------------------------------------------------------
-# Grid Search
-# ---------------------------------------------------------------------------
 def hyperparameters_search(
     algorithm_name: str,
     X_train: np.ndarray,
     X_val: np.ndarray,
     y_val_transformed: np.ndarray,
     *,
-    n_jobs: int = 10,
+    n_jobs: int = -1,
 ) -> EvaluationResult:
-    """
-    Busca exaustiva de hiperparâmetros via Grid Search paralelo.
-
-    Avalia todas as combinações do PARAM_GRID no conjunto de VALIDAÇÃO
-    (nunca no teste), retornando o melhor resultado.
-
-    Args:
-        algorithm_name: Nome do algoritmo (chave em PARAM_GRIDS).
-        X_train: Dados de treino.
-        X_val: Dados de validação.
-        y_val_transformed: Labels de validação (formato 1/-1).
-        n_jobs: Número de jobs paralelos (-1 = todos os cores).
-
-    Returns:
-        EvaluationResult do melhor modelo encontrado.
-    """
     if algorithm_name not in PARAM_GRIDS:
         raise KeyError(
             f"Grid de parâmetros não definido para '{algorithm_name}'. "
@@ -181,7 +122,6 @@ def hyperparameters_search(
     param_grid = PARAM_GRIDS[algorithm_name]
     model_factory = get_model_factory(algorithm_name)
 
-    # Gerar todas as combinações
     param_list = [
         dict(zip(param_grid.keys(), values)) for values in product(*param_grid.values())
     ]
@@ -193,7 +133,6 @@ def hyperparameters_search(
         total,
     )
 
-    # Execução paralela com progress bar
     with _tqdm_joblib(tqdm(desc="Treinando modelos", total=total)):
         results: list[EvaluationResult] = Parallel(n_jobs=n_jobs)(
             delayed(evaluate_model)(

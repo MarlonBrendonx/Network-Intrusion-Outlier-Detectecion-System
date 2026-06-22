@@ -1,11 +1,3 @@
-"""
-Módulo de visualização PCA.
-
-Gera projeção 2D ou 3D dos dados usando PCA, separando visualmente
-amostras Normal vs Outlier. Útil para diagnóstico da qualidade do
-espaço de features (especialmente após aplicação de filtros estatísticos).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,35 +25,13 @@ def generate_pca_plot(
     random_state: int = 42,
     standardize: bool = True,
 ) -> Path:
-    """
-    Projeta `X` em 2D ou 3D via PCA e plota Normal vs Outlier.
-
-    Args:
-        X: Matriz de features (n_samples, n_features). Espera-se que já
-           esteja imputada e filtrada (saída de `prepare_splits`).
-        y: Labels binárias (0 = Normal, 1 = Outlier) ou no formato sklearn
-           (1 = Normal, -1 = Outlier). A função detecta automaticamente.
-        n_components: 2 para gráfico 2D, 3 para 3D.
-        output_path: Onde salvar o gráfico (PNG).
-        title: Título do gráfico.
-        sample_size: Se fornecido, amostra esse número de pontos por classe
-                     (para gráficos legíveis em datasets grandes).
-        random_state: Semente para amostragem reprodutível.
-        standardize: Se True, aplica StandardScaler antes do PCA. PCA
-                     é sensível à escala — manter ligado é o default seguro.
-
-    Returns:
-        Caminho do arquivo salvo.
-    """
     if n_components not in (2, 3):
         raise ValueError(f"n_components deve ser 2 ou 3, recebido: {n_components}")
 
     X = np.asarray(X)
     y = np.asarray(y).ravel()
 
-    # Normalizar labels para {0, 1}: 0 = Normal, 1 = Outlier
     if set(np.unique(y)).issubset({-1, 1}):
-        # Formato sklearn: 1 = Normal, -1 = Outlier → 0/1
         y_bin = np.where(y == -1, 1, 0)
     else:
         y_bin = (y > 0).astype(int)
@@ -76,7 +46,6 @@ def generate_pca_plot(
         n_outlier,
     )
 
-    # Subamostragem por classe (gráfico legível)
     if sample_size is not None:
         rng = np.random.default_rng(random_state)
         idx_normal = np.where(y_bin == 0)[0]
@@ -96,14 +65,12 @@ def generate_pca_plot(
             (y_bin == 1).sum(),
         )
 
-    # Padronização (PCA é sensível à escala)
     if standardize:
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
     else:
         X_scaled = X
 
-    # Ajuste do PCA
     pca = PCA(n_components=n_components, random_state=random_state)
     X_pca = pca.fit_transform(X_scaled)
 
@@ -115,7 +82,6 @@ def generate_pca_plot(
         total_var,
     )
 
-    # ---- Plot ------------------------------------------------------------
     fig = plt.figure(figsize=(10, 8))
 
     if n_components == 2:
@@ -139,7 +105,7 @@ def generate_pca_plot(
         ax.set_xlabel(f"PC1 ({explained[0]:.2%} variância)")
         ax.set_ylabel(f"PC2 ({explained[1]:.2%} variância)")
 
-    else:  # 3D
+    else:
         ax = fig.add_subplot(111, projection="3d")
         ax.scatter(
             X_pca[y_bin == 0, 0],
@@ -191,31 +157,6 @@ def generate_pca_cross_domain(
     n_components: Literal[2, 3] = 2,
     interactive: bool = False,
 ) -> Path:
-    """
-    Plota PCA 2D ou 3D combinando duas distribuições (treino vs generalização)
-    com 4 categorias para evidenciar o deslocamento de domínio.
-
-    O PCA é ajustado em TODOS os pontos juntos (treino + generalização),
-    para que a projeção seja comparável entre os dois dias na mesma escala.
-
-    Args:
-        X_train_normal: Amostras normais do dataset de treino.
-        X_train_attack: Amostras de ataque do dataset de treino.
-        X_gen_normal: Amostras normais do dataset de generalização.
-        X_gen_attack: Amostras de ataque do dataset de generalização.
-        train_label: Nome do dataset de treino (ex: "Friday").
-        gen_label: Nome do dataset de generalização (ex: "Tuesday").
-        output_path: Caminho do PNG (ou HTML, se interactive) de saída.
-        sample_size: Pontos por categoria (subamostragem para legibilidade).
-        random_state: Semente reprodutível.
-        n_components: 2 (default) ou 3 — dimensionalidade da projeção.
-        interactive: Se True, gera HTML via Plotly (rotacionável); se False,
-            PNG estático via Matplotlib. Útil sobretudo no 3D, onde o
-            ângulo de câmera estático pode esconder estrutura.
-
-    Returns:
-        Caminho do arquivo salvo.
-    """
     rng = np.random.default_rng(random_state)
 
     def _subsample(X: np.ndarray, n: Optional[int]) -> np.ndarray:
@@ -242,7 +183,6 @@ def generate_pca_cross_domain(
         len(X_ga),
     )
 
-    # Empilha tudo e marca origem (0..3) para split posterior
     X_all = np.vstack([X_tn, X_ta, X_gn, X_ga])
     sizes = [len(X_tn), len(X_ta), len(X_gn), len(X_ga)]
     cuts = np.cumsum([0] + sizes)
@@ -250,7 +190,6 @@ def generate_pca_cross_domain(
     if n_components not in (2, 3):
         raise ValueError(f"n_components deve ser 2 ou 3, recebido: {n_components}")
 
-    # Padronização e PCA ajustados no conjunto unificado
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_all)
 
@@ -303,12 +242,10 @@ def _plot_pca_cross_static(
     n_components: int,
     output_path: Path,
 ) -> Path:
-    """Salva PNG estático com matplotlib (2D ou 3D)."""
     fig = plt.figure(figsize=(11, 8) if n_components == 3 else (11, 7))
 
     if n_components == 2:
         ax = fig.add_subplot(111)
-        # Camadas: normais primeiro (mais leves), ataques por cima (mais visíveis)
         ax.scatter(
             pts_tn[:, 0], pts_tn[:, 1],
             c="#bdbdbd", s=10, alpha=0.45, marker="o",
@@ -384,7 +321,6 @@ def _plot_pca_cross_interactive(
     n_components: int,
     output_path: Path,
 ) -> Path:
-    """Salva HTML interativo com Plotly (rotacionável/zoomable no browser)."""
     import plotly.graph_objects as go
 
     is_3d = n_components == 3

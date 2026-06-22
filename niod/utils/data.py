@@ -1,12 +1,3 @@
-"""
-Funções de carregamento, limpeza e pré-processamento de dados.
-
-Princípios:
-- Imputer é fitado SOMENTE no conjunto de treino.
-- Nenhuma informação do teste/validação vaza para o treino.
-- Todas as transformações são reproduzíveis via random_state.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -23,13 +14,8 @@ from sklearn.utils import resample, shuffle
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Containers de dados tipados
-# ---------------------------------------------------------------------------
 @dataclass
 class SplitData:
-    """Contém os conjuntos de treino, validação e teste já divididos."""
-
     X_train: np.ndarray
     X_val: np.ndarray
     X_test: np.ndarray
@@ -41,32 +27,17 @@ class SplitData:
     feature_columns: pd.Index
     imputer: SimpleImputer
     stat_filter: Optional["StatisticalFilter"] = None
-    pca: Optional[Any] = None  # sklearn PCA fitado, ou None
+    pca: Optional[Any] = None
 
 
 @dataclass
 class StatisticalFilter:
-    """
-    Resultado de `apply_statistical_filters`.
-
-    Guarda as colunas mantidas e as descartadas em cada etapa, para que
-    o mesmo filtro possa ser aplicado em val/teste e em datasets de
-    generalização (sem refit, sem data leakage).
-    """
-
     kept_columns: pd.Index
     dropped_low_variance: list[str]
     dropped_duplicates: list[str]
     dropped_high_correlation: list[str]
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Aplica o filtro já ajustado a um novo DataFrame.
-
-        Usa `reindex` para garantir que o DataFrame de saída tenha
-        EXATAMENTE as colunas usadas no treino, na mesma ordem. Colunas
-        que não existem na entrada viram NaN (e devem ser tratadas pelo
-        imputer downstream, que foi fitado com essas mesmas colunas).
-        """
         if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(X)
 
@@ -81,11 +52,7 @@ class StatisticalFilter:
         return X.reindex(columns=self.kept_columns)
 
 
-# ---------------------------------------------------------------------------
-# Carregamento
-# ---------------------------------------------------------------------------
 def load_arff(path: Path) -> pd.DataFrame:
-    """Carrega um arquivo .arff e retorna um DataFrame limpo."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Dataset não encontrado: {path}")
@@ -97,16 +64,7 @@ def load_arff(path: Path) -> pd.DataFrame:
     return df
 
 
-# ---------------------------------------------------------------------------
-# Limpeza
-# ---------------------------------------------------------------------------
 def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """
-    Remove infinitos e NaN do DataFrame bruto.
-
-    Returns:
-        Tupla (df_limpo, quantidade_linhas_removidas).
-    """
     original_rows = len(df)
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna(axis=0, how="any")
@@ -117,7 +75,6 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 def clean_features(X: np.ndarray | pd.DataFrame) -> pd.DataFrame:
-    """Converte tipos e substitui infinitos por NaN (pré-imputação)."""
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
     return X.replace([np.inf, -np.inf], np.nan)
@@ -129,63 +86,26 @@ def apply_imputation(
     *,
     fit: bool = False,
 ) -> np.ndarray:
-    """
-    Aplica imputação de forma controlada.
-
-    Args:
-        X: Dados a imputar.
-        imputer: Instância de SimpleImputer.
-        fit: Se True, faz fit_transform (SOMENTE para treino).
-
-    Returns:
-        Array numpy imputado com negativos zerados.
-    """
     if fit:
         result = imputer.fit_transform(X)
     else:
         result = imputer.transform(X)
 
-    # Zerar valores negativos (coerência com dados de rede)
     return np.where(result < 0, 0, result)
 
 
-# ---------------------------------------------------------------------------
-# Feature Engineering — redução de dimensionalidade por filtros estatísticos
-# ---------------------------------------------------------------------------
 def apply_statistical_filters(
     X: pd.DataFrame,
     *,
     variance_threshold: float = 0.0,
     correlation_threshold: float = 0.95,
 ) -> StatisticalFilter:
-    """
-    Ajusta filtros estatísticos SOMENTE no conjunto passado (tipicamente treino).
-
-    Aplica três filtros em sequência:
-      1. Variância quase-zero: descarta colunas com variância <= threshold.
-      2. Duplicatas literais: descarta colunas idênticas a outras já mantidas.
-      3. Correlação alta: para cada par |ρ| > threshold, descarta uma delas.
-
-    IMPORTANTE: esta função é o equivalente ao `fit` de um transformer sklearn.
-    O resultado (`StatisticalFilter`) deve ser aplicado em val/teste via
-    `.transform(X)`, NUNCA recalculado — isso evitaria data leakage.
-
-    Args:
-        X: DataFrame de treino (limpo, sem infinitos, sem NaN).
-        variance_threshold: Colunas com variância <= este valor são descartadas.
-                            Default 0.0 (só remove constantes exatas).
-        correlation_threshold: |ρ| acima deste valor define par redundante.
-
-    Returns:
-        StatisticalFilter já ajustado, pronto para `.transform()`.
-    """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
 
     initial_cols = X.shape[1]
     logger.info("Filtros estatísticos — entrada: %d colunas.", initial_cols)
 
-    # --- 1. Variância quase-zero ------------------------------------------
     variances = X.var(axis=0, numeric_only=True)
     low_var_cols = variances[variances <= variance_threshold].index.tolist()
     X_step1 = X.drop(columns=low_var_cols)
@@ -200,8 +120,6 @@ def apply_statistical_filters(
         ),
     )
 
-    # --- 2. Duplicatas literais -------------------------------------------
-    # Usa T.duplicated() para identificar colunas com valores idênticos.
     duplicated_mask = X_step1.T.duplicated(keep="first")
     duplicate_cols = X_step1.columns[duplicated_mask].tolist()
     X_step2 = X_step1.drop(columns=duplicate_cols)
@@ -211,8 +129,6 @@ def apply_statistical_filters(
         f" ({duplicate_cols})" if duplicate_cols else "",
     )
 
-    # --- 3. Correlação alta (|ρ| > threshold) -----------------------------
-    # Usa só o triângulo superior para não contar pares duas vezes.
     corr_matrix = X_step2.corr(numeric_only=True).abs()
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
     high_corr_cols = [
@@ -246,21 +162,12 @@ def apply_statistical_filters(
     )
 
 
-# ---------------------------------------------------------------------------
-# Aplicação de contaminação controlada
-# ---------------------------------------------------------------------------
 def apply_contamination(
     X: pd.DataFrame,
     y: pd.Series,
     target_contamination: Optional[float],
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """
-    Ajusta a proporção de outliers para atingir a contaminação desejada.
-
-    Faz downsample da classe minoritária (outlier) para atingir a proporção
-    exata, preservando todos os dados benignos.
-    """
     if target_contamination is None:
         return X, y
 
@@ -299,17 +206,10 @@ def apply_contamination(
     return resample(X_final, y_final, replace=False, random_state=random_state)
 
 
-# ---------------------------------------------------------------------------
-# Label helpers
-# ---------------------------------------------------------------------------
 def transform_labels(y: np.ndarray) -> np.ndarray:
-    """Converte labels 0/1 → 1/-1 (formato sklearn anomaly detection)."""
     return np.where(y == 0, 1, -1)
 
 
-# ---------------------------------------------------------------------------
-# Split principal
-# ---------------------------------------------------------------------------
 def prepare_splits(
     df: pd.DataFrame,
     label_column: str = "Label",
@@ -325,33 +225,8 @@ def prepare_splits(
     pca_reduce: Optional[int] = None,
     domain_features: Optional[list[str]] = None,
 ) -> SplitData:
-    """
-    Divide os dados em treino/validação/teste com tratamento correto
-    para novelty detection e detecção de outliers.
-
-    Garante:
-    - Sem data leakage: imputer, filtros e PCA fitados apenas no treino.
-    - Stratificação quando aplicável.
-    - Shuffle dos conjuntos mistos.
-
-    Args:
-        apply_filters: Se True, aplica `apply_statistical_filters` no treino
-                       (antes da imputação) e propaga o mesmo filtro para
-                       val/teste. Recomendado para LOF e One-Class SVM.
-        variance_threshold: Passado para `apply_statistical_filters`.
-        correlation_threshold: Passado para `apply_statistical_filters`.
-        pca_reduce: Se for um inteiro, aplica PCA com esse número de componentes
-                    DEPOIS da imputação. Útil principalmente para LOF e SVM
-                    em alta dimensão. Use None para desativar.
-        domain_features: Lista de features de domínio a adicionar antes dos
-                    filtros (ex: ["Eng_Packet_Shape", "Eng_Fwd_Header_Load"]).
-                    Use None para desativar. Lista vazia também desativa.
-    """
     from niod.utils.domain_features import add_domain_features
 
-    # Adiciona features de domínio ao DataFrame inteiro ANTES do split.
-    # Como são razões puramente determinísticas das features originais, isso
-    # não causa data leakage (não há estatística aprendida do alvo).
     if domain_features:
         df = add_domain_features(df, features=domain_features)
     from sklearn.model_selection import train_test_split
@@ -360,7 +235,7 @@ def prepare_splits(
     y = df[label_column]
     feature_columns = X.columns
 
-    test_ratio_in_temp = 0.75  # 75% de (1 - train_size) → ~30% do total
+    test_ratio_in_temp = 0.75
 
     if novelty or algorithm == "svm":
         splits = _split_novelty(
@@ -374,7 +249,6 @@ def prepare_splits(
     X_train, X_val, X_test = splits["X_train"], splits["X_val"], splits["X_test"]
     y_train, y_val, y_test = splits["y_train"], splits["y_val"], splits["y_test"]
 
-    # Log de proporções
     logger.info(
         "X_train: %s", X_train.shape if hasattr(X_train, "shape") else len(X_train)
     )
@@ -389,28 +263,20 @@ def prepare_splits(
         np.mean(y_test),
     )
 
-    # Transformar labels para formato sklearn
     y_val_transformed = transform_labels(y_val)
     y_test_transformed = transform_labels(y_test)
 
-    # Limpeza de infinitos (pré-filtro e pré-imputação)
     X_train = clean_features(X_train)
     X_val = clean_features(X_val)
     X_test = clean_features(X_test)
 
-    # Reaplicar nomes de colunas quando os splits vieram como ndarray
-    # (caso novelty, onde _split_novelty chama .values internamente).
     if list(X_train.columns) != list(feature_columns):
         X_train.columns = feature_columns
         X_val.columns = feature_columns
         X_test.columns = feature_columns
 
-    # ---- Filtros estatísticos (fit SOMENTE no treino) --------------------
     stat_filter: Optional[StatisticalFilter] = None
     if apply_filters:
-        # Para decidir variância/correlação precisamos de valores finitos.
-        # Usamos fillna(0) apenas para o fit do filtro; a imputação real
-        # acontece logo depois, preservando a separação treino/val/teste.
         stat_filter = apply_statistical_filters(
             X_train.fillna(0),
             variance_threshold=variance_threshold,
@@ -421,13 +287,11 @@ def prepare_splits(
         X_test = stat_filter.transform(X_test)
         feature_columns = stat_filter.kept_columns
 
-    # ---- Imputação (fit SOMENTE no treino) -------------------------------
     imputer = SimpleImputer(strategy="mean")
     X_train = apply_imputation(X_train, imputer, fit=True)
     X_val = apply_imputation(X_val, imputer, fit=False)
     X_test = apply_imputation(X_test, imputer, fit=False)
 
-    # ---- PCA (fit SOMENTE no treino) -------------------------------------
     pca_model = None
     if pca_reduce is not None and pca_reduce > 0:
         from sklearn.decomposition import PCA
@@ -451,7 +315,6 @@ def prepare_splits(
                 pca_reduce,
                 explained * 100,
             )
-            # Após PCA, as colunas viram PC1..PCn
             feature_columns = pd.Index([f"PC{i+1}" for i in range(pca_reduce)])
 
     return SplitData(
@@ -477,7 +340,6 @@ def _split_novelty(
     test_ratio: float,
     random_state: int,
 ) -> dict[str, np.ndarray]:
-    """Split para novelty detection: treino contém apenas amostras normais."""
     from sklearn.model_selection import train_test_split
 
     temp_size = 1.0 - train_size
@@ -489,7 +351,6 @@ def _split_novelty(
 
     logger.info("Normais: %d | Outliers: %d", len(X_normais), len(X_outliers))
 
-    # Normais: 60% treino, 10% val, 30% teste
     X_train, X_temp_n, y_train, y_temp_n = train_test_split(
         X_normais, y_normais, test_size=temp_size, random_state=random_state
     )
@@ -497,7 +358,6 @@ def _split_novelty(
         X_temp_n, y_temp_n, test_size=test_ratio, random_state=random_state
     )
 
-    # Outliers: descarte 60%, 10% val, 30% teste
     _, X_temp_o, _, y_temp_o = train_test_split(
         X_outliers, y_outliers, test_size=temp_size, random_state=random_state
     )
@@ -505,13 +365,11 @@ def _split_novelty(
         X_temp_o, y_temp_o, test_size=test_ratio, random_state=random_state
     )
 
-    # Combinar val e teste (normais + outliers)
     X_val = np.concatenate((X_val_n, X_val_o))
     y_val = np.concatenate((y_val_n, y_val_o))
     X_test = np.concatenate((X_test_n, X_test_o))
     y_test = np.concatenate((y_test_n, y_test_o))
 
-    # Shuffle dos conjuntos mistos
     X_val, y_val = shuffle(X_val, y_val, random_state=random_state)
     X_test, y_test = shuffle(X_test, y_test, random_state=random_state)
 
@@ -533,7 +391,6 @@ def _split_standard(
     random_state: int,
     contamination: Optional[float],
 ) -> dict[str, np.ndarray | pd.DataFrame]:
-    """Split padrão com estratificação e contaminação controlada."""
     from sklearn.model_selection import train_test_split
 
     X_train, X_temp, y_train, y_temp = train_test_split(
@@ -573,9 +430,6 @@ def _split_standard(
     }
 
 
-# ---------------------------------------------------------------------------
-# Enriquecimento do treino com normais de outro domínio
-# ---------------------------------------------------------------------------
 def load_extra_normal(
     extra_path: Path,
     stat_filter: Optional["StatisticalFilter"],
@@ -586,22 +440,6 @@ def load_extra_normal(
     pca: Optional[Any] = None,
     label_column: str = "Label",
 ) -> np.ndarray:
-    """
-    Carrega amostras normais de um dataset extra e aplica o mesmo
-    pré-processamento do treino (sem refitting — sem data leakage).
-
-    Args:
-        extra_path: Caminho do dataset extra (.arff).
-        stat_filter: Filtro estatístico fittado no treino.
-        imputer: Imputer fittado no treino.
-        feature_columns: Colunas esperadas (layout do treino).
-        domain_features: Features de domínio usadas no treino.
-        pca: PCA fittado no treino (ou None).
-        label_column: Nome da coluna de label.
-
-    Returns:
-        Array numpy com amostras normais pré-processadas.
-    """
     from niod.utils.domain_features import add_domain_features
 
     logger.info("Carregando normais extras de: %s", extra_path)
@@ -610,7 +448,6 @@ def load_extra_normal(
     if domain_features:
         df = add_domain_features(df, features=domain_features)
 
-    # Filtra apenas amostras normais (label == 0)
     if label_column in df.columns:
         df = df[df[label_column] == 0].drop(columns=[label_column])
     else:
@@ -623,7 +460,6 @@ def load_extra_normal(
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna(axis=0, how="any")
 
-    # Garante o mesmo layout de colunas do treino
     available = [c for c in feature_columns if c in df.columns]
     df = df[available]
 
@@ -640,9 +476,6 @@ def load_extra_normal(
     return X_arr
 
 
-# ---------------------------------------------------------------------------
-# Preparação para visualização (PCA/UMAP)
-# ---------------------------------------------------------------------------
 def prepare_data_for_visualization(
     file_path: Path,
     columns_ref: pd.Index,
@@ -650,24 +483,14 @@ def prepare_data_for_visualization(
     label_desc: str,
     sample_size: int = 5000,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Carrega e prepara dados de um dataset externo para visualização.
-
-    Alinha colunas com o dataset de referência e aplica amostragem.
-
-    Returns:
-        Tupla (X_normais, X_ataques).
-    """
     df = load_arff(file_path)
     target_col = df.columns[-1]
 
-    # Decodificar labels se necessário
     if df[target_col].dtype == object:
         df[target_col] = df[target_col].apply(
             lambda x: x.decode("utf-8") if isinstance(x, bytes) else str(x)
         )
 
-    # Identificar normais vs ataques
     if pd.api.types.is_numeric_dtype(df[target_col]):
         mask_normal = df[target_col] == 0
     else:
@@ -682,7 +505,6 @@ def prepare_data_for_visualization(
     X_norm = X_local[mask_normal]
     X_att = X_local[~mask_normal]
 
-    # Amostragem para performance
     if len(X_norm) > sample_size:
         X_norm = X_norm.sample(n=sample_size, random_state=42)
     if len(X_att) > sample_size:

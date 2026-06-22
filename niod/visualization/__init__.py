@@ -1,3 +1,5 @@
-from niod.visualization.umap_plot import generate_umap_3d
+import matplotlib
 
-__all__ = ["generate_pca_cross_domain", "generate_pca_plot", "generate_umap_3d"]
+matplotlib.use("Agg")
+
+__all__ = ["generate_pca_cross_domain", "generate_pca_plot"]
