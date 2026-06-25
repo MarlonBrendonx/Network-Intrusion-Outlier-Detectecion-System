@@ -34,5 +34,5 @@ MODEL_REGISTRY: dict[str, ModelFactory] = {
 def get_model_factory(name: str) -> ModelFactory:
     if name not in MODEL_REGISTRY:
         available = ", ".join(MODEL_REGISTRY.keys())
-        raise KeyError(f"Modelo '{name}' não encontrado. Disponíveis: {available}")
+        raise KeyError(f"Model '{name}' not found. Available: {available}")
     return MODEL_REGISTRY[name]

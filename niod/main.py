@@ -25,6 +25,22 @@ from niod.utils.data import (
     prepare_splits,
 )
 
+from niod.utils.data import load_extra_normal
+from niod.visualization.pca_plot import generate_pca_plot
+
+from niod.utils.domain_features import FEATURE_TO_GROUP
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
+
+from niod.utils.data import (
+    apply_imputation,
+    clean_features,
+    load_arff,
+    transform_labels,
+)
+from niod.utils.domain_features import add_domain_features
+
 logger = logging.getLogger("niod")
 
 
@@ -53,10 +69,10 @@ def run_pipeline(config: ExperimentConfig) -> dict:
 
     df = load_arff(config.train_dataset)
     df, removed = clean_dataframe(df)
-    logger.info("Shape final: %s (removidas %d linhas)", df.shape, removed)
+    logger.info("Final shape: %s (removed %d rows)", df.shape, removed)
 
     logger.info("-" * 70)
-    logger.info("Dividindo dados...")
+    logger.info("Splitting data...")
     split_data = prepare_splits(
         df,
         label_column="Label",
@@ -68,6 +84,7 @@ def run_pipeline(config: ExperimentConfig) -> dict:
         apply_filters=config.apply_filters,
         pca_reduce=config.pca_reduce,
         domain_features=config.domain_features,
+        feature_whitelist=config.feature_whitelist,
     )
     results["split"] = split_data
 
@@ -76,7 +93,7 @@ def run_pipeline(config: ExperimentConfig) -> dict:
 
     if config.hyper_search:
         logger.info("-" * 70)
-        logger.info("Iniciando busca de hiperparâmetros (%s)...", algorithm_name)
+        logger.info("Starting hyperparameter search (%s)...", algorithm_name)
 
         val_result = hyperparameters_search(
             algorithm_name,
@@ -85,11 +102,11 @@ def run_pipeline(config: ExperimentConfig) -> dict:
             split_data.y_val_transformed,
         )
 
-        _log_evaluation("VALIDAÇÃO", val_result)
+        _log_evaluation("VALIDATION", val_result)
         results["validation"] = val_result
 
         logger.info("-" * 70)
-        logger.info("Avaliação final no conjunto de TESTE...")
+        logger.info("Final evaluation on the TEST set...")
 
         best_params = val_result.params
         test_result = evaluate_model(
@@ -101,7 +118,21 @@ def run_pipeline(config: ExperimentConfig) -> dict:
         )
     else:
         params = _resolve_default_params(config)
-        logger.info("Parâmetros fixos: %s", params)
+        logger.info("Fixed parameters: %s", params)
+
+        # Evaluate on VALIDATION even without a grid: modeling decisions (PCA, domain
+        # features) should be made on the validation set, not the test set. Without this,
+        # the only number printed was the test one, inducing selection on the test
+        # set (review item 2). The test set is still evaluated only once.
+        val_result = evaluate_model(
+            model_factory,
+            params,
+            split_data.X_train,
+            split_data.X_val,
+            split_data.y_val_transformed,
+        )
+        _log_evaluation("VALIDATION", val_result)
+        results["validation"] = val_result
 
         test_result = evaluate_model(
             model_factory,
@@ -111,7 +142,7 @@ def run_pipeline(config: ExperimentConfig) -> dict:
             split_data.y_test_transformed,
         )
 
-    _log_evaluation("TESTE", test_result)
+    _log_evaluation("TEST", test_result)
     results["test"] = test_result
 
     return results
@@ -121,21 +152,19 @@ def enrich_train_with_extra_normal(
     config: ExperimentConfig,
     pipeline_result: dict,
 ) -> dict:
-    from niod.utils.data import load_extra_normal
-
     split_data = pipeline_result["split"]
     extra_path = config.extra_normal_dataset
 
     if extra_path is None or not extra_path.exists():
         logger.warning(
-            "Dataset extra não encontrado: %s. Pulando enriquecimento.", extra_path
+            "Extra dataset not found: %s. Skipping enrichment.", extra_path
         )
         return pipeline_result
 
     logger.info("=" * 70)
-    logger.info("ENRIQUECIMENTO DO TREINO COM NORMAIS EXTRAS")
+    logger.info("TRAINING ENRICHMENT WITH EXTRA NORMAL SAMPLES")
     logger.info("=" * 70)
-    logger.info("Fonte: %s", extra_path)
+    logger.info("Source: %s", extra_path)
 
     X_extra = load_extra_normal(
         extra_path=extra_path,
@@ -147,7 +176,7 @@ def enrich_train_with_extra_normal(
     )
 
     if len(X_extra) == 0:
-        logger.warning("Nenhuma amostra extra adicionada.")
+        logger.warning("No extra samples added.")
         return pipeline_result
 
     original_size = len(split_data.X_train)
@@ -156,7 +185,7 @@ def enrich_train_with_extra_normal(
         [split_data.y_train, np.zeros(len(X_extra), dtype=split_data.y_train.dtype)]
     )
     logger.info(
-        "X_train: %d → %d amostras (+%d normais de %s)",
+        "X_train: %d → %d samples (+%d normal from %s)",
         original_size,
         len(split_data.X_train),
         len(X_extra),
@@ -170,29 +199,17 @@ def run_few_shot_enrichment(
     config: ExperimentConfig,
     pipeline_result: dict,
 ) -> dict:
-    from sklearn.metrics import classification_report, confusion_matrix, f1_score
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import RobustScaler
-
-    from niod.utils.data import (
-        apply_imputation,
-        clean_features,
-        load_arff,
-        transform_labels,
-    )
-    from niod.utils.domain_features import add_domain_features
-
     few_shot_path = config.few_shot_dataset
     ratio = config.few_shot_ratio
 
     if few_shot_path is None or not few_shot_path.exists():
-        logger.warning("Dataset few-shot não encontrado: %s. Pulando.", few_shot_path)
+        logger.warning("Few-shot dataset not found: %s. Skipping.", few_shot_path)
         return pipeline_result
 
     logger.info("=" * 70)
     logger.info("FEW-SHOT ENRICHMENT — UNSUPERVISED (ratio=%.0f%%)", ratio * 100)
     logger.info("=" * 70)
-    logger.info("Fonte: %s", few_shot_path)
+    logger.info("Source: %s", few_shot_path)
 
     split_data = pipeline_result["split"]
     test_result: EvaluationResult = pipeline_result["test"]
@@ -228,7 +245,7 @@ def run_few_shot_enrichment(
     X_holdout_normal = X_holdout[y_holdout == 1]
 
     logger.info(
-        "Normais do alvo: %d total → %d few-shot | %d holdout-normal | %d holdout-ataques",
+        "Target normal samples: %d total → %d few-shot | %d holdout-normal | %d holdout-attacks",
         len(df_normal),
         len(X_few),
         len(df_holdout_normal),
@@ -242,7 +259,7 @@ def run_few_shot_enrichment(
     )
 
     logger.info(
-        "X_train: %d → %d amostras (+%d normais de %s)",
+        "X_train: %d → %d samples (+%d normal from %s)",
         len(X_train_enriched) - len(X_few),
         len(X_train_enriched),
         len(X_few),
@@ -254,7 +271,7 @@ def run_few_shot_enrichment(
     is_novelty = getattr(estimator, "novelty", False)
 
     if is_lof and not is_novelty:
-        logger.warning("LOF modo não-novelty: retrein ignorado (fit_predict no teste).")
+        logger.warning("LOF non-novelty mode: retraining ignored (fit_predict on test).")
     else:
         model_factory = get_model_factory(config.algorithm.value)
         new_pipeline = Pipeline(
@@ -270,7 +287,7 @@ def run_few_shot_enrichment(
             split_data.y_test_transformed, y_pred, labels=[1, -1], average="macro"
         )
         logger.info(
-            "F1 no teste original após few-shot: %.4f (antes: %.4f)",
+            "F1 on the original test set after few-shot: %.4f (before: %.4f)",
             f1_new,
             test_result.f1,
         )
@@ -308,8 +325,6 @@ def run_pca_visualization(
     sample_size: int = 10000,
     output_path: Path | None = None,
 ) -> dict:
-    from niod.visualization.pca_plot import generate_pca_plot
-
     split_data = pipeline_result["split"]
 
     if on == "train":
@@ -319,7 +334,7 @@ def run_pca_visualization(
     elif on == "test":
         X, y = split_data.X_test, split_data.y_test
     else:
-        raise ValueError(f"--pca-on deve ser train/val/test, recebido: {on}")
+        raise ValueError(f"--pca-on must be train/val/test, received: {on}")
 
     suffix = "filtered" if config.apply_filters else "raw"
     default_path = Path(f"pca_{n_components}d_{on}_{suffix}.png")
@@ -327,12 +342,12 @@ def run_pca_visualization(
 
     title = (
         f"PCA {n_components}D — {on} "
-        f"({'com filtros' if config.apply_filters else 'sem filtros'}, "
+        f"({'with filters' if config.apply_filters else 'without filters'}, "
         f"{config.algorithm.value})"
     )
 
     logger.info("=" * 70)
-    logger.info("VISUALIZAÇÃO PCA (%dD)", n_components)
+    logger.info("PCA VISUALIZATION (%dD)", n_components)
     logger.info("=" * 70)
 
     pca_path = generate_pca_plot(
@@ -370,14 +385,10 @@ def run_pca_cross_domain(
 
     if not config.generalization_dataset.exists():
         logger.warning(
-            "Dataset de generalização não encontrado: %s. Pulando PCA cross-domain.",
+            "Generalization dataset not found: %s. Skipping cross-domain PCA.",
             config.generalization_dataset,
         )
         return pipeline_result
-
-    logger.info("=" * 70)
-    logger.info("PCA CROSS-DOMAIN (TREINO vs GENERALIZAÇÃO)")
-    logger.info("=" * 70)
 
     X_train_full = np.asarray(split_data.X_train)
     y_train_full = np.asarray(split_data.y_train)
@@ -391,11 +402,11 @@ def run_pca_cross_domain(
 
     if len(X_train_attack) == 0:
         logger.warning(
-            "Nenhum ataque encontrado no dataset de treino — "
-            "o gráfico cross-domain ficará incompleto."
+            "No attacks found in the training dataset — "
+            "the cross-domain plot will be incomplete."
         )
 
-    logger.info("Carregando %s para PCA cross-domain...", config.generalization_dataset)
+    logger.info("Loading %s for cross-domain PCA...", config.generalization_dataset)
     df_gen = load_arff(config.generalization_dataset)
 
     if config.domain_features:
@@ -405,7 +416,7 @@ def run_pca_cross_domain(
 
     if "Label" not in df_gen.columns:
         logger.warning(
-            "Coluna 'Label' não encontrada em %s. Pulando PCA cross-domain.",
+            "Column 'Label' not found in %s. Skipping cross-domain PCA.",
             config.generalization_dataset,
         )
         return pipeline_result
@@ -415,7 +426,7 @@ def run_pca_cross_domain(
 
     if len(df_gen) == 0:
         logger.warning(
-            "Dataset de generalização ficou vazio após limpeza. Pulando PCA cross-domain."
+            "Generalization dataset became empty after cleaning. Skipping cross-domain PCA."
         )
         return pipeline_result
 
@@ -434,7 +445,7 @@ def run_pca_cross_domain(
     X_gen_attack = X_gen_arr[y_gen == -1]
 
     logger.info(
-        "Generalização processada: %d amostras (Normal=%d, Ataque=%d)",
+        "Generalization processed: %d samples (Normal=%d, Attack=%d)",
         len(X_gen_arr),
         len(X_gen_normal),
         len(X_gen_attack),
@@ -483,13 +494,13 @@ def _resolve_default_params(config: ExperimentConfig) -> dict:
 def _log_evaluation(stage: str, result: EvaluationResult) -> None:
     logger.info("")
     logger.info("=" * 50)
-    logger.info("Resultado — %s", stage)
+    logger.info("Result — %s", stage)
     logger.info("=" * 50)
-    logger.info("Melhores parâmetros: %s", result.params)
+    logger.info("Best parameters: %s", result.params)
     logger.info("F1 Score: %.4f", result.f1)
-    logger.info("\nRelatório de Classificação:")
+    logger.info("\nClassification Report:")
     logger.info("\n%s", result.report)
-    logger.info("Matriz de Confusão [Normal, Outlier]:")
+    logger.info("Confusion Matrix [Normal, Outlier]:")
     logger.info("\n%s", result.confusion_matrix)
 
 
@@ -508,12 +519,35 @@ def _resolve_domain_features(args: argparse.Namespace) -> list[str] | None:
         groups = ", ".join(DOMAIN_FEATURES.keys())
         feats = ", ".join(FEATURE_TO_GROUP.keys())
         raise SystemExit(
-            f"Erro: nomes desconhecidos: {unknown}.\n"
-            f"Grupos disponíveis: {groups}\n"
-            f"Features disponíveis: {feats}"
+            f"Error: unknown names: {unknown}.\n"
+            f"Available groups: {groups}\n"
+            f"Available features: {feats}"
         )
 
     return args.domain_features
+
+
+def _augment_domain_for_whitelist(
+    domain_features: list[str] | None,
+    whitelist: list[str] | None,
+) -> list[str] | None:
+    if not whitelist:
+        return domain_features
+
+    needed_groups = {
+        FEATURE_TO_GROUP[col] for col in whitelist if col in FEATURE_TO_GROUP
+    }
+    if not needed_groups:
+        return domain_features
+
+    merged = list(domain_features or [])
+    added = [g for g in sorted(needed_groups) if g not in merged]
+    if added:
+        merged.extend(added)
+        logger.info(
+            "Whitelist requires domain features; adding groups: %s", added
+        )
+    return merged
 
 
 def parse_args() -> argparse.Namespace:
@@ -524,154 +558,164 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-dataset",
         type=Path,
-        default=Path("data/Friday_balanceado.arff"),
-        help="Caminho do dataset de treino (.arff)",
+        default=Path("data/Friday.arff"),
+        help="Path to the training dataset (.arff)",
     )
     parser.add_argument(
         "--generalization-dataset",
         type=Path,
         default=Path("data/Tuesday.arff"),
-        help="Caminho do dataset de generalização (.arff)",
+        help="Path to the generalization dataset (.arff)",
     )
     parser.add_argument(
         "--algorithm",
         type=str,
         choices=[a.value for a in Algorithm],
         default=Algorithm.ISOLATION_FOREST.value,
-        help="Algoritmo de detecção",
+        help="Detection algorithm",
     )
     parser.add_argument(
         "--no-novelty",
         action="store_true",
-        help="Desativar modo novelty (inclui outliers no treino)",
+        help="Disable novelty mode (includes outliers in training)",
     )
     parser.add_argument(
-        "--no-hyper-search",
+        "--hyper-search",
         action="store_true",
-        help="Desativar busca de hiperparâmetros",
+        help="Enable hyperparameter search (disabled by default)",
     )
     parser.add_argument(
         "--contamination",
         type=float,
         default=0.1,
-        help="Taxa de contaminação (se novelty=False)",
+        help="Contamination rate (if novelty=False)",
     )
     parser.add_argument(
-        "--skip-pca",
+        "--plot-pca",
         action="store_true",
-        help="Pular geração do gráfico PCA",
+        help="Generate the PCA plot (disabled by default)",
     )
     parser.add_argument(
         "--pca-components",
         type=int,
         choices=[2, 3],
         default=2,
-        help="Número de componentes do PCA (2 ou 3)",
+        help="Number of PCA components (2 or 3)",
     )
     parser.add_argument(
         "--pca-on",
         type=str,
         choices=["train", "val", "test"],
         default="test",
-        help="Conjunto onde aplicar PCA para plotar",
+        help="Set on which to apply PCA for plotting",
     )
     parser.add_argument(
         "--pca-sample-size",
         type=int,
         default=10000,
-        help="Pontos por classe no gráfico PCA (subamostragem)",
+        help="Points per class in the PCA plot (subsampling)",
     )
     parser.add_argument(
-        "--skip-pca-cross",
+        "--plot-pca-cross",
         action="store_true",
-        help="Pular geração do PCA cross-domain (treino vs generalização)",
+        help="Generate the cross-domain PCA (training vs generalization; disabled by default)",
     )
     parser.add_argument(
         "--pca-cross-sample-size",
         type=int,
         default=5000,
-        help="Pontos por categoria no PCA cross-domain (subamostragem)",
+        help="Points per category in the cross-domain PCA (subsampling)",
     )
     parser.add_argument(
         "--pca-cross-components",
         type=int,
         choices=[2, 3],
         default=2,
-        help="Número de componentes do PCA cross-domain (2 ou 3)",
+        help="Number of cross-domain PCA components (2 or 3)",
     )
     parser.add_argument(
         "--pca-cross-interactive",
         action="store_true",
-        help="Salvar PCA cross-domain como HTML interativo (Plotly, rotacionável no browser). "
-        "Recomendado para 3D, onde o ângulo de câmera estático pode esconder estrutura.",
+        help="Save the cross-domain PCA as interactive HTML (Plotly, rotatable in the browser). "
+        "Recommended for 3D, where a static camera angle can hide structure.",
     )
     parser.add_argument(
         "--no-filters",
         action="store_true",
-        help="Desativar filtros estatísticos (variância/duplicatas/correlação)",
+        help="Disable statistical filters (variance/duplicates/correlation)",
     )
     parser.add_argument(
         "--pca-reduce",
         type=int,
         default=None,
         metavar="N",
-        help="Aplicar PCA com N componentes como redução de dimensionalidade "
-        "(fitado só no treino, propagado a val/teste/generalização). "
-        "Padrão: desativado.",
+        help="Apply PCA with N components as dimensionality reduction "
+        "(fitted only on training, propagated to val/test/generalization). "
+        "Default: disabled.",
     )
     parser.add_argument(
         "--no-pca-reduce",
         action="store_true",
-        help="Desativa PCA como redução de dimensionalidade (sobrescreve --pca-reduce).",
+        help="Disable PCA as dimensionality reduction (overrides --pca-reduce).",
     )
     parser.add_argument(
         "--domain-features",
         nargs="+",
         default=None,
         metavar="NAME",
-        help="Lista de GRUPOS ou FEATURES individuais a adicionar (pode misturar). "
-        "Grupos: Eng_Packet_Shape, Eng_Fwd_Header_Load, Eng_Temporal_Burstiness, "
+        help="List of GROUPS or individual FEATURES to add (can be mixed). "
+        "Groups: Eng_Packet_Shape, Eng_Fwd_Header_Load, Eng_Temporal_Burstiness, "
         "Eng_Flag_Density, Eng_Flow_Indicators, Eng_Flow_Rates. "
-        "Ex (grupo): --domain-features Eng_Flag_Density | "
+        "Ex (group): --domain-features Eng_Flag_Density | "
         "Ex (features): --domain-features is_short_flow is_unidirectional",
     )
     parser.add_argument(
         "--all-domain-features",
         action="store_true",
-        help="Ativa TODAS as features de domínio registradas (atalho).",
+        help="Enable ALL registered domain features (shortcut).",
+    )
+    parser.add_argument(
+        "--feature-whitelist",
+        nargs="+",
+        default=None,
+        metavar="COL",
+        help="Train using ONLY these columns (base and/or domain), discarding "
+        "all others. Applied after generating the domain features; disables the "
+        "statistical filters (the whitelist takes priority). Use quotes for names with "
+        'spaces. Ex: --feature-whitelist fwd_header_to_payload_ratio "ACK Flag Count"',
     )
     parser.add_argument(
         "--extra-normal-dataset",
         type=Path,
         default=None,
         metavar="PATH",
-        help="Dataset extra para enriquecer o treino com amostras normais adicionais "
-        "(ex: data/Tuesday.arff). Só normais são extraídas; pré-processamento do "
-        "treino é reutilizado sem refitting.",
+        help="Extra dataset to enrich training with additional normal samples "
+        "(e.g. data/Tuesday.arff). Only normal samples are extracted; the training "
+        "preprocessing is reused without refitting.",
     )
     parser.add_argument(
         "--few-shot-dataset",
         type=Path,
         default=None,
         metavar="PATH",
-        help="Dataset alvo para few-shot não-supervisionado (ex: data/Tuesday.arff). "
-        "Uma fração das normais do alvo é adicionada ao treino; os ataques (+ normais "
-        "restantes) formam o holdout de avaliação de generalização.",
+        help="Target dataset for unsupervised few-shot (e.g. data/Tuesday.arff). "
+        "A fraction of the target's normal samples is added to training; the attacks (+ remaining "
+        "normal samples) form the generalization evaluation holdout.",
     )
     parser.add_argument(
         "--few-shot-ratio",
         type=float,
         default=0.05,
         metavar="RATIO",
-        help="Fração das amostras normais do dataset alvo a incluir no treino "
-        "(padrão: 0.05 = 5%%)",
+        help="Fraction of the target dataset's normal samples to include in training "
+        "(default: 0.05 = 5%%)",
     )
     parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Nível de logging",
+        help="Logging level",
     )
     return parser.parse_args()
 
@@ -681,17 +725,21 @@ def main() -> None:
 
     pca_reduce_value = None if args.no_pca_reduce else args.pca_reduce
     domain_features_value = _resolve_domain_features(args)
+    domain_features_value = _augment_domain_for_whitelist(
+        domain_features_value, args.feature_whitelist
+    )
 
     config = ExperimentConfig(
         train_dataset=args.train_dataset,
         generalization_dataset=args.generalization_dataset,
         algorithm=Algorithm(args.algorithm),
         novelty=not args.no_novelty,
-        hyper_search=not args.no_hyper_search,
+        hyper_search=args.hyper_search,
         contamination=args.contamination,
         apply_filters=not args.no_filters,
         pca_reduce=pca_reduce_value,
         domain_features=domain_features_value,
+        feature_whitelist=args.feature_whitelist,
         extra_normal_dataset=args.extra_normal_dataset,
         few_shot_dataset=args.few_shot_dataset,
         few_shot_ratio=args.few_shot_ratio,
@@ -706,7 +754,7 @@ def main() -> None:
     if config.few_shot_dataset is not None:
         results = run_few_shot_enrichment(config, results)
 
-    if not args.skip_pca:
+    if args.plot_pca:
         results = run_pca_visualization(
             config,
             results,
@@ -715,7 +763,7 @@ def main() -> None:
             sample_size=args.pca_sample_size,
         )
 
-    if not args.skip_pca_cross:
+    if args.plot_pca_cross:
         results = run_pca_cross_domain(
             config,
             results,
@@ -723,11 +771,6 @@ def main() -> None:
             n_components=args.pca_cross_components,
             interactive=args.pca_cross_interactive,
         )
-
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info("Pipeline concluído com sucesso.")
-    logger.info("=" * 70)
 
 
 if __name__ == "__main__":

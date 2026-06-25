@@ -10,7 +10,7 @@ from imblearn.over_sampling import SMOTE
 from niod.utils.data import clean_dataframe, load_arff
 
 LABEL_COLUMN = "Label"
-LABEL_NAMES = {0: "normal/benigno", 1: "outlier/ataque"}
+LABEL_NAMES = {0: "normal/benign", 1: "outlier/attack"}
 
 
 def distribution(y: pd.Series) -> pd.DataFrame:
@@ -36,15 +36,15 @@ def print_table(title: str, table: pd.DataFrame) -> None:
     total = int(table["n"].sum())
     for _, row in table.iterrows():
         print(
-            f"  classe {row['class']} ({row['name']:<15}): "
-            f"{row['n']:>10,} amostras  ({row['pct']:6.2f}%)"
+            f"  class {row['class']} ({row['name']:<15}): "
+            f"{row['n']:>10,} samples  ({row['pct']:6.2f}%)"
         )
-    print(f"  {'TOTAL':<27}: {total:>10,} amostras")
+    print(f"  {'TOTAL':<27}: {total:>10,} samples")
 
 
 def verdict(table: pd.DataFrame) -> None:
     if len(table) < 2:
-        print("\n[!] Apenas uma classe presente")
+        print("\n[!] Only one class present")
         return
 
     counts_by_class = {int(r["class"]): int(r["n"]) for _, r in table.iterrows()}
@@ -57,16 +57,16 @@ def verdict(table: pd.DataFrame) -> None:
     contamination = 100.0 * n_outlier / (n_normal + n_outlier)
 
     print("-----------")
-    print(f"  Razão de desbalanceamento (maj:min): {ratio:6.2f} : 1")
-    print(f"  Contaminação (% de outliers)       : {contamination:6.2f}%")
+    print(f"  Imbalance ratio (maj:min)          : {ratio:6.2f} : 1")
+    print(f"  Contamination (% of outliers)      : {contamination:6.2f}%")
 
     if ratio <= 1.5:
-        verdict_text = "Balanceado (proporção ~1:1)."
+        verdict_text = "Balanced (ratio ~1:1)."
     elif ratio <= 4:
-        verdict_text = "Levemente desbalanceamento."
+        verdict_text = "Slightly imbalanced."
     else:
-        verdict_text = "Fortemente desbalanceado."
-    print(f"  Veredito                           : {verdict_text}")
+        verdict_text = "Strongly imbalanced."
+    print(f"  Verdict                            : {verdict_text}")
 
 
 def read_arff_header(path: Path) -> tuple[list[str], list[str]]:
@@ -123,24 +123,24 @@ def main() -> None:
         "--dataset",
         type=Path,
         default=Path("../data/Tuesday.arff"),
-        help="Caminho do .arff a inspecionar (default: data/Tuesday.arff).",
+        help="Path of the .arff to inspect (default: data/Tuesday.arff).",
     )
     parser.add_argument(
         "--smote",
         action="store_true",
-        help="Aplica SMOTE para balancear 50/50 e grava um novo .arff.",
+        help="Apply SMOTE to balance 50/50 and write a new .arff.",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Saída do .arff balanceado (default: <dataset>_balanceado.arff).",
+        help="Output of the balanced .arff (default: <dataset>_balanceado.arff).",
     )
     parser.add_argument(
         "--random-state",
         type=int,
         default=42,
-        help="Semente do SMOTE (reprodutibilidade). Default: 42.",
+        help="SMOTE seed (reproducibility). Default: 42.",
     )
     args = parser.parse_args()
 
@@ -149,16 +149,16 @@ def main() -> None:
 
     if LABEL_COLUMN not in df.columns:
         raise SystemExit(
-            f"Coluna '{LABEL_COLUMN}' não encontrada. Colunas: {list(df.columns)[-5:]}"
+            f"Column '{LABEL_COLUMN}' not found. Columns: {list(df.columns)[-5:]}"
         )
 
     table_raw = distribution(df[LABEL_COLUMN])
-    print_table("Distribuição antes da limpeza", table_raw)
+    print_table("Distribution before cleaning", table_raw)
 
     df_clean, removed = clean_dataframe(df)
-    print(f"\n[limpeza] {removed:,} linhas com inf/NaN removidas.")
+    print(f"\n[cleaning] {removed:,} rows with inf/NaN removed.")
     table_clean = distribution(df_clean[LABEL_COLUMN])
-    print_table("Distribuição após limpeza", table_clean)
+    print_table("Distribution after cleaning", table_clean)
 
     verdict(table_clean)
 
@@ -166,20 +166,20 @@ def main() -> None:
         return
 
     print("\n" + "=" * 60)
-    print("Aplicando SMOTE...")
+    print("Applying SMOTE...")
     X_resampled, y_resampled = apply_smote(df_clean, random_state=args.random_state)
 
     table_smote = distribution(y_resampled)
-    print_table("Distribuição após SMOTE", table_smote)
+    print_table("Distribution after SMOTE", table_smote)
 
     output = args.output or args.dataset.with_name(
         f"{args.dataset.stem}_balanceado.arff"
     )
     header_lines, attributes = read_arff_header(args.dataset)
     write_arff(output, header_lines, attributes, X_resampled, y_resampled)
-    print(f"\n[ok] Dataset balanceado salvo em: {output}")
+    print(f"\n[ok] Balanced dataset saved to: {output}")
     print(
-        f"     {len(y_resampled):,} linhas ({df_clean.shape[1] - 1} features + Label)."
+        f"     {len(y_resampled):,} rows ({df_clean.shape[1] - 1} features + Label)."
     )
 
 

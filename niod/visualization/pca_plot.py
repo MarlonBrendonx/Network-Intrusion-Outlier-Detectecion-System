@@ -20,13 +20,13 @@ def generate_pca_plot(
     *,
     n_components: Literal[2, 3] = 2,
     output_path: Path = Path("pca_class_separation.png"),
-    title: str = "PCA — Separação Normal vs Outlier",
+    title: str = "PCA — Normal vs Outlier Separation",
     sample_size: Optional[int] = 10000,
     random_state: int = 42,
     standardize: bool = True,
 ) -> Path:
     if n_components not in (2, 3):
-        raise ValueError(f"n_components deve ser 2 ou 3, recebido: {n_components}")
+        raise ValueError(f"n_components must be 2 or 3, received: {n_components}")
 
     X = np.asarray(X)
     y = np.asarray(y).ravel()
@@ -39,7 +39,7 @@ def generate_pca_plot(
     n_normal = int((y_bin == 0).sum())
     n_outlier = int((y_bin == 1).sum())
     logger.info(
-        "PCA — entrada: %d amostras, %d features (Normal=%d, Outlier=%d)",
+        "PCA — input: %d samples, %d features (Normal=%d, Outlier=%d)",
         X.shape[0],
         X.shape[1],
         n_normal,
@@ -60,7 +60,7 @@ def generate_pca_plot(
         X = X[keep]
         y_bin = y_bin[keep]
         logger.info(
-            "PCA — após subamostragem: %d Normal, %d Outlier",
+            "PCA — after subsampling: %d Normal, %d Outlier",
             (y_bin == 0).sum(),
             (y_bin == 1).sum(),
         )
@@ -77,7 +77,7 @@ def generate_pca_plot(
     explained = pca.explained_variance_ratio_
     total_var = explained.sum() * 100
     logger.info(
-        "PCA — variância explicada por componente: %s | total: %.2f%%",
+        "PCA — explained variance per component: %s | total: %.2f%%",
         [f"{v:.2%}" for v in explained],
         total_var,
     )
@@ -102,8 +102,8 @@ def generate_pca_plot(
             alpha=0.6,
             label=f"Outlier (n={n_outlier:,})",
         )
-        ax.set_xlabel(f"PC1 ({explained[0]:.2%} variância)")
-        ax.set_ylabel(f"PC2 ({explained[1]:.2%} variância)")
+        ax.set_xlabel(f"PC1 ({explained[0]:.2%} variance)")
+        ax.set_ylabel(f"PC2 ({explained[1]:.2%} variance)")
 
     else:
         ax = fig.add_subplot(111, projection="3d")
@@ -129,7 +129,7 @@ def generate_pca_plot(
         ax.set_ylabel(f"PC2 ({explained[1]:.2%})")
         ax.set_zlabel(f"PC3 ({explained[2]:.2%})")
 
-    ax.set_title(f"{title}\n(variância total explicada: {total_var:.1f}%)")
+    ax.set_title(f"{title}\n(total explained variance: {total_var:.1f}%)")
     ax.legend(loc="best", framealpha=0.9)
     ax.grid(True, alpha=0.3)
 
@@ -139,7 +139,7 @@ def generate_pca_plot(
     fig.savefig(output_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
 
-    logger.info("Gráfico PCA salvo em: %s", output_path)
+    logger.info("PCA plot saved to: %s", output_path)
     return output_path
 
 
@@ -172,7 +172,7 @@ def generate_pca_cross_domain(
     X_ga = _subsample(X_gen_attack, sample_size)
 
     logger.info(
-        "PCA cross-domain — %s Normal: %d | %s Ataque: %d | %s Normal: %d | %s Ataque: %d",
+        "PCA cross-domain — %s Normal: %d | %s Attack: %d | %s Normal: %d | %s Attack: %d",
         train_label,
         len(X_tn),
         train_label,
@@ -188,7 +188,7 @@ def generate_pca_cross_domain(
     cuts = np.cumsum([0] + sizes)
 
     if n_components not in (2, 3):
-        raise ValueError(f"n_components deve ser 2 ou 3, recebido: {n_components}")
+        raise ValueError(f"n_components must be 2 or 3, received: {n_components}")
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_all)
@@ -198,7 +198,7 @@ def generate_pca_cross_domain(
 
     explained = pca.explained_variance_ratio_
     logger.info(
-        "PCA cross-domain — variância explicada: %s | total: %.2f%%",
+        "PCA cross-domain — explained variance: %s | total: %.2f%%",
         " | ".join(f"PC{i+1}={v * 100:.2f}%" for i, v in enumerate(explained)),
         explained.sum() * 100,
     )
@@ -249,7 +249,7 @@ def _plot_pca_cross_static(
         ax.scatter(
             pts_tn[:, 0], pts_tn[:, 1],
             c="#bdbdbd", s=10, alpha=0.45, marker="o",
-            label=f"{train_label}: Normal (Treino)",
+            label=f"{train_label}: Normal (Train)",
         )
         ax.scatter(
             pts_gn[:, 0], pts_gn[:, 1],
@@ -259,22 +259,22 @@ def _plot_pca_cross_static(
         ax.scatter(
             pts_ta[:, 0], pts_ta[:, 1],
             c="#000000", s=18, alpha=0.7, marker="x",
-            label=f"{train_label}: Ataques",
+            label=f"{train_label}: Attacks",
         )
         ax.scatter(
             pts_ga[:, 0], pts_ga[:, 1],
             c="#d62728", s=22, alpha=0.75, marker="^",
-            label=f"{gen_label}: Ataques",
+            label=f"{gen_label}: Attacks",
         )
-        ax.set_xlabel(f"PC1 ({explained[0]:.2%} variância)")
-        ax.set_ylabel(f"PC2 ({explained[1]:.2%} variância)")
+        ax.set_xlabel(f"PC1 ({explained[0]:.2%} variance)")
+        ax.set_ylabel(f"PC2 ({explained[1]:.2%} variance)")
         ax.grid(True, alpha=0.3)
     else:
         ax = fig.add_subplot(111, projection="3d")
         ax.scatter(
             pts_tn[:, 0], pts_tn[:, 1], pts_tn[:, 2],
             c="#bdbdbd", s=10, alpha=0.40, marker="o",
-            label=f"{train_label}: Normal (Treino)",
+            label=f"{train_label}: Normal (Train)",
         )
         ax.scatter(
             pts_gn[:, 0], pts_gn[:, 1], pts_gn[:, 2],
@@ -284,20 +284,20 @@ def _plot_pca_cross_static(
         ax.scatter(
             pts_ta[:, 0], pts_ta[:, 1], pts_ta[:, 2],
             c="#000000", s=20, alpha=0.75, marker="x",
-            label=f"{train_label}: Ataques",
+            label=f"{train_label}: Attacks",
         )
         ax.scatter(
             pts_ga[:, 0], pts_ga[:, 1], pts_ga[:, 2],
             c="#d62728", s=24, alpha=0.80, marker="^",
-            label=f"{gen_label}: Ataques",
+            label=f"{gen_label}: Attacks",
         )
         ax.set_xlabel(f"PC1 ({explained[0]:.2%})")
         ax.set_ylabel(f"PC2 ({explained[1]:.2%})")
         ax.set_zlabel(f"PC3 ({explained[2]:.2%})")
 
     ax.set_title(
-        f"Visualização do Espaço de Características ({n_components}D): {train_label} vs {gen_label}\n"
-        f"(variância total explicada: {explained.sum():.1%})"
+        f"Feature Space Visualization ({n_components}D): {train_label} vs {gen_label}\n"
+        f"(total explained variance: {explained.sum():.1%})"
     )
     ax.legend(loc="best", framealpha=0.9, fontsize=9)
 
@@ -305,7 +305,7 @@ def _plot_pca_cross_static(
     fig.savefig(output_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
 
-    logger.info("Gráfico PCA cross-domain salvo em: %s", output_path)
+    logger.info("PCA cross-domain plot saved to: %s", output_path)
     return output_path
 
 
@@ -335,7 +335,7 @@ def _plot_pca_cross_interactive(
         ScatterCls(
             **_coords(pts_tn),
             mode="markers",
-            name=f"{train_label}: Normal (Treino)",
+            name=f"{train_label}: Normal (Train)",
             marker=dict(size=3 if is_3d else 5, color="lightgrey", opacity=0.40),
         ),
         ScatterCls(
@@ -349,21 +349,21 @@ def _plot_pca_cross_interactive(
         traces.append(ScatterCls(
             **_coords(pts_ta),
             mode="markers",
-            name=f"{train_label}: Ataques",
+            name=f"{train_label}: Attacks",
             marker=dict(size=4 if is_3d else 7, color="black", symbol="cross", opacity=0.75),
         ))
     if len(pts_ga) > 0:
         traces.append(ScatterCls(
             **_coords(pts_ga),
             mode="markers",
-            name=f"{gen_label}: Ataques",
+            name=f"{gen_label}: Attacks",
             marker=dict(size=5 if is_3d else 8, color="red", symbol="diamond", opacity=0.85),
         ))
 
     fig = go.Figure(data=traces)
     title = (
         f"PCA Cross-Domain ({n_components}D): {train_label} vs {gen_label} "
-        f"— variância total: {explained.sum():.1%}"
+        f"— total variance: {explained.sum():.1%}"
     )
     if is_3d:
         fig.update_layout(
@@ -389,5 +389,5 @@ def _plot_pca_cross_interactive(
     if output_path.suffix != ".html":
         output_path = output_path.with_suffix(".html")
     fig.write_html(str(output_path))
-    logger.info("Gráfico PCA cross-domain interativo salvo em: %s", output_path)
+    logger.info("Interactive PCA cross-domain plot saved to: %s", output_path)
     return output_path

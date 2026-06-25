@@ -1,155 +1,179 @@
 # NIOD — Network Intrusion Outlier Detection
 
+<<<<<<< Updated upstream
 Framework para detecção de anomalias em tráfego de rede usando técnicas de
 **novelty/outlier detection** (não supervisionado) e **classificação supervisionada**,
+=======
+Framework for anomaly detection in network traffic using
+**novelty/outlier detection** (unsupervised) and **supervised classification** techniques,
+focused on evaluating generalization under *concept drift* (CICIDS Friday → Tuesday).
+>>>>>>> Stashed changes
 
-## Arquitetura
+## Architecture
 
 ```
 niod/
-├── __init__.py            # Versão do pacote
-├── __main__.py            # Entry point: python -m niod (pipeline não supervisionado)
-├── main.py                # Orquestrador do pipeline de outlier detection + CLI
-├── classify.py            # Pipeline de classificação supervisionada + CLI
+├── __init__.py            # Package version
+├── __main__.py            # Entry point: python -m niod (unsupervised pipeline)
+├── main.py                # Outlier detection pipeline orchestrator + CLI
+├── classify.py            # Supervised classification pipeline + CLI
 ├── config/
 │   ├── __init__.py
-│   └── settings.py        # ExperimentConfig, enums e grids de hiperparâmetros
+│   └── settings.py        # ExperimentConfig, enums and hyperparameter grids
 ├── modules/
 │   ├── __init__.py
-│   ├── models.py          # Registro de modelos não supervisionados (IF, LOF, SVM)
-│   ├── classification.py  # Registro/treino de classificadores supervisionados (XGBoost)
-│   └── evaluation.py      # Treino, avaliação e grid search paralelo
+│   ├── models.py          # Unsupervised model registry (IF, LOF, SVM)
+│   ├── classification.py  # Supervised classifier registry/training (XGBoost)
+│   └── evaluation.py      # Training, evaluation and parallel grid search
 ├── utils/
 │   ├── __init__.py
-│   ├── data.py            # Loading, limpeza, filtros estatísticos, splits, PCA reduce
-│   └── domain_features.py # Features de domínio engenheiradas (grupos Eng_*)
+│   ├── data.py            # Loading, cleaning, statistical filters, splits, PCA reduce
+│   └── domain_features.py # Engineered domain features (Eng_* groups)
 └── visualization/
     ├── __init__.py
-    └── pca_plot.py        # PCA 2D/3D e PCA cross-domain para análise de drift
+    └── pca_plot.py        # 2D/3D PCA and cross-domain PCA for drift analysis
 
 scripts/
-├── check_balancing.py     # Inspeção/balanceamento via SMOTE dos datasets .arff
-└── generate_scree_pca.py  # Scree plot + variância acumulada para justificar nº de componentes
+├── check_balancing.py     # SMOTE inspection/balancing of .arff datasets
+└── generate_scree_pca.py  # Scree plot + cumulative variance to justify number of components
 ```
 
-## Como executar
+## How to run
 
-### 1. Requisitos
+### 1. Requirements
 
 - Python **>= 3.10**
-- Os datasets `.arff` na pasta `data/` (não versionada). O pipeline espera, por padrão:
-  - `data/Friday_balanceado.arff` — dataset de treino
-  - `data/Tuesday.arff` — dataset alvo para avaliação de generalização / few-shot
+- The `.arff` datasets in the `data/` folder (not versioned). By default, the pipeline expects:
+  - `data/Friday_balanceado.arff` — training dataset
+  - `data/Tuesday.arff` — target dataset for generalization / few-shot evaluation
 
-### 2. Instalação
+### 2. Installation
 
 ```bash
-# Criar e ativar o ambiente virtual
+# Create and activate the virtual environment
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 
-# Instalar o pacote em modo editável
+# Install the package in editable mode
 pip install -e .
 
-# (Opcional) incluir suporte a gráficos PCA interativos (--pca-cross-interactive)
+# (Optional) include support for interactive PCA plots (--pca-cross-interactive)
 pip install -e ".[interactive]"
 ```
 
-A instalação registra o comando `niod` (equivalente a `python -m niod`) e instala todas
-as dependências declaradas no `pyproject.toml` (numpy, pandas, scikit-learn, scipy,
+Installation registers the `niod` command (equivalent to `python -m niod`) and installs all
+dependencies declared in `pyproject.toml` (numpy, pandas, scikit-learn, scipy,
 matplotlib, joblib, tqdm, xgboost, imbalanced-learn).
 
-### 3. Pipeline não supervisionado (outlier/novelty detection)
+### 3. Unsupervised pipeline (outlier/novelty detection)
 
 ```bash
-# Pipeline completo (default: Isolation Forest + novelty + grid search)
+# Full pipeline (default: Isolation Forest + novelty + grid search)
 python -m niod
 
-# One-Class SVM sem busca de hiperparâmetros
+# One-Class SVM without hyperparameter search
 python -m niod --algorithm svm --no-hyper-search
 
-# LOF em modo outlier (sem novelty) com contaminação customizada
+# LOF in outlier mode (no novelty) with custom contamination
 python -m niod --algorithm lof --no-novelty --contamination 0.15
 
-# Avaliar generalização com few-shot não supervisionado (5% das normais do alvo no treino)
+# Evaluate generalization with unsupervised few-shot (5% of the target's normals in training)
 python -m niod --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
 
-# Adicionar features de domínio (grupos ou features individuais)
+# Add domain features (groups or individual features)
 python -m niod --domain-features Eng_Flag_Density Eng_Flow_Rates
 python -m niod --all-domain-features
 
-# Redução de dimensionalidade via PCA (fitado só no treino)
+# Dimensionality reduction via PCA (fitted on training only)
 python -m niod --pca-reduce 16
 
-# Pular visualizações
+# Skip visualizations
 python -m niod --skip-pca --skip-pca-cross
 
 # Debug
 python -m niod --log-level DEBUG
 ```
 
-### 4. Pipeline supervisionado (classificação)
+### 4. Supervised pipeline (classification)
 
 ```bash
-# Classificação com XGBoost + grid search
+# Classification with XGBoost + grid search
 python -m niod.classify
 
-# Few-shot supervisionado: injeta uma fração dos ataques do alvo no treino
+# Supervised few-shot: injects a fraction of the target's attacks into training
 python -m niod.classify --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
 
-# Com features de domínio e sem busca de hiperparâmetros
+# With domain features and without hyperparameter search
 python -m niod.classify --all-domain-features --no-hyper-search
 ```
 
-### 5. Scripts auxiliares
+### 5. Helper scripts
 
 ```bash
-# Inspecionar o balanço de classes de um dataset (e gerar versão balanceada via SMOTE)
+# Inspect a dataset's class balance (and generate a balanced version via SMOTE)
 python scripts/check_balancing.py --smote
 
-# Gerar scree plot + variância acumulada do PCA (salvos em docs/)
+# Generate PCA scree plot + cumulative variance (saved to docs/)
 python scripts/generate_scree_pca.py --train-dataset data/Friday_balanceado.arff
 ```
 
-### 6. Saídas
+### 6. Outputs
 
-- **Métricas** (F1, classification report, matriz de confusão) são impressas via `logging`
-  no terminal — ajuste a verbosidade com `--log-level`.
-- **Figuras PCA** (`pca_2d_test_*.png`, `pca_cross_*.png`) são salvas no diretório de
-  execução. Com `--pca-cross-interactive` é gerado um HTML rotacionável (requer o extra
-  `interactive`).
-- As figuras dos scripts auxiliares (`pca_scree.png`, `pca_cumulativa.png`) vão para `docs/`.
+- **Metrics** (F1, classification report, confusion matrix) are printed via `logging`
+  to the terminal — adjust verbosity with `--log-level`.
+- **PCA figures** (`pca_2d_test_*.png`, `pca_cross_*.png`) are saved to the execution
+  directory. With `--pca-cross-interactive`, a rotatable HTML is generated (requires the
+  `interactive` extra).
+- The helper scripts' figures (`pca_scree.png`, `pca_cumulativa.png`) go to `docs/`.
 
-> Diretórios `data/`, `results/`, `*.png` e artefatos de build são ignorados pelo git.
+> The `data/`, `results/`, `*.png` directories and build artifacts are ignored by git.
 
-Ver todas as opções de cada CLI:
+See all options for each CLI:
 
 ```bash
 python -m niod --help
 python -m niod.classify --help
 ```
 
-## Algoritmos Suportados
+## Supported Algorithms
 
-### Não supervisionados
+### Unsupervised
 
-| Algoritmo            | Chave              | Modo Novelty | Modo Outlier |
+| Algorithm            | Key                | Novelty Mode | Outlier Mode |
 |----------------------|--------------------|:------------:|:------------:|
 | Isolation Forest     | `isolation_forest` | ✅           | ✅           |
 | Local Outlier Factor | `lof`              | ✅           | ✅           |
-| One-Class SVM        | `svm`              | ✅           | —            |
+| One-Class SVM        | `svm`              | ✅           | —           |
 
-### Supervisionados
+### Supervised
 
-| Algoritmo | Chave     |
+| Algorithm | Key       |
 |-----------|-----------|
 | XGBoost   | `xgboost` |
 
-## Features de domínio
+## Domain features
 
-Grupos engenheirados disponíveis (via `--domain-features <GRUPO>` ou `--all-domain-features`):
+Available engineered groups (via `--domain-features <GROUP>` or `--all-domain-features`):
 
 `Eng_Packet_Shape`, `Eng_Fwd_Header_Load`, `Eng_Temporal_Burstiness`,
 `Eng_Flag_Density`, `Eng_Flow_Indicators`, `Eng_Flow_Rates`.
 
+<<<<<<< Updated upstream
 Também é possível ativar features individuais (ex.: `--domain-features is_short_flow is_unidirectional`).
+=======
+You can also enable individual features (e.g.: `--domain-features is_short_flow is_unidirectional`).
+
+## Engineering principles
+
+### Data integrity
+- **No data leakage**: scaler/imputer/PCA fitted ONLY on training and applied to validation/test/generalization.
+- **Encapsulated state** in dataclasses (`ExperimentConfig`, `EvaluationResult`, `SplitData`).
+
+### Reproducibility
+- `random_state` propagated consistently across splits and models.
+- Centralized configuration in `ExperimentConfig` (no hardcoded values).
+
+### Performance
+- Parallel grid search with `joblib` + `tqdm`.
+- Figures closed after saving (`plt.close()`) to avoid memory leaks.
+>>>>>>> Stashed changes

@@ -7,6 +7,8 @@ from typing import Any
 
 import joblib
 import numpy as np
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from joblib import Parallel, delayed
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from tqdm import tqdm
@@ -44,8 +46,34 @@ CLASSIFICATION_MODEL_REGISTRY: dict[str, Any] = {
 def get_classifier_factory(name: str):
     if name not in CLASSIFICATION_MODEL_REGISTRY:
         available = ", ".join(CLASSIFICATION_MODEL_REGISTRY.keys())
-        raise KeyError(f"Classificador '{name}' não encontrado. Disponíveis: {available}")
+        raise KeyError(f"Classifier '{name}' not found. Available: {available}")
     return CLASSIFICATION_MODEL_REGISTRY[name]
+
+
+def build_classifier(
+    model_factory,
+    params: dict[str, Any],
+    *,
+    use_smote: bool = True,
+    random_state: int = 42,
+):
+    """Build the estimator to be trained.
+
+    When ``use_smote`` is True, the classifier is wrapped in an
+    ``imblearn.pipeline.Pipeline`` (SMOTE → estimator). SMOTE resampling
+    runs ONLY during ``.fit()``; ``.predict()`` ignores it entirely. Thus
+    the balancing never reaches val/test — the leakage is impossible by
+    construction, not just by usage convention.
+    """
+    estimator = model_factory(**params)
+    if not use_smote:
+        return estimator
+    return ImbPipeline(
+        [
+            ("smote", SMOTE(random_state=random_state)),
+            ("estimator", estimator),
+        ]
+    )
 
 
 def evaluate_classifier(
@@ -57,8 +85,12 @@ def evaluate_classifier(
     y_test: np.ndarray,
     *,
     verbose: bool = True,
+    use_smote: bool = True,
+    random_state: int = 42,
 ) -> ClassificationResult:
-    model = model_factory(**params)
+    model = build_classifier(
+        model_factory, params, use_smote=use_smote, random_state=random_state
+    )
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
@@ -71,7 +103,7 @@ def evaluate_classifier(
         y_test,
         y_pred,
         labels=[0, 1],
-        target_names=["Normal (0)", "Ataque (1)"],
+        target_names=["Normal (0)", "Attack (1)"],
         output_dict=False,
     )
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
@@ -112,11 +144,13 @@ def hyperparameters_search_classifier(
     y_val: np.ndarray,
     *,
     n_jobs: int = 8,
+    use_smote: bool = True,
+    random_state: int = 42,
 ) -> ClassificationResult:
     if algorithm_name not in CLASSIFICATION_PARAM_GRIDS:
         raise KeyError(
-            f"Grid não definido para '{algorithm_name}'. "
-            f"Disponíveis: {list(CLASSIFICATION_PARAM_GRIDS.keys())}"
+            f"Grid not defined for '{algorithm_name}'. "
+            f"Available: {list(CLASSIFICATION_PARAM_GRIDS.keys())}"
         )
 
     param_grid = CLASSIFICATION_PARAM_GRIDS[algorithm_name]
@@ -128,12 +162,12 @@ def hyperparameters_search_classifier(
 
     total = len(param_list)
     logger.info(
-        "Grid Search para '%s' — %d combinações de hiperparâmetros.",
+        "Grid Search for '%s' — %d hyperparameter combinations.",
         algorithm_name,
         total,
     )
 
-    with _tqdm_joblib(tqdm(desc="Treinando classificadores", total=total)):
+    with _tqdm_joblib(tqdm(desc="Training classifiers", total=total)):
         results: list[ClassificationResult] = Parallel(n_jobs=n_jobs)(
             delayed(evaluate_classifier)(
                 model_factory,
@@ -143,10 +177,12 @@ def hyperparameters_search_classifier(
                 X_val,
                 y_val,
                 verbose=False,
+                use_smote=use_smote,
+                random_state=random_state,
             )
             for params in param_list
         )
 
     best = max(results, key=lambda r: r.f1)
-    logger.info("Melhor F1 encontrado: %.4f | Params: %s", best.f1, best.params)
+    logger.info("Best F1 found: %.4f | Params: %s", best.f1, best.params)
     return best

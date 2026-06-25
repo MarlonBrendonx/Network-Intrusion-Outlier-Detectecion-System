@@ -44,8 +44,8 @@ class StatisticalFilter:
         missing = [c for c in self.kept_columns if c not in X.columns]
         if missing:
             logger.warning(
-                "StatisticalFilter.transform: %d coluna(s) do treino ausente(s) "
-                "na entrada (serão preenchidas pelo imputer): %s",
+                "StatisticalFilter.transform: %d train column(s) missing "
+                "from input (will be filled by the imputer): %s",
                 len(missing),
                 missing[:5] + (["..."] if len(missing) > 5 else []),
             )
@@ -55,9 +55,9 @@ class StatisticalFilter:
 def load_arff(path: Path) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"Dataset não encontrado: {path}")
+        raise FileNotFoundError(f"Dataset not found: {path}")
 
-    logger.info("Carregando dataset: %s", path)
+    logger.info("Loading dataset: %s", path)
     data, _meta = arff.loadarff(path)
     df = pd.DataFrame(data)
     df.columns = df.columns.str.strip()
@@ -70,7 +70,7 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     df = df.dropna(axis=0, how="any")
     removed = original_rows - len(df)
     if removed > 0:
-        logger.info("Removidas %d linhas com valores inválidos.", removed)
+        logger.info("Removed %d rows with invalid values.", removed)
     return df, removed
 
 
@@ -104,13 +104,13 @@ def apply_statistical_filters(
         X = pd.DataFrame(X)
 
     initial_cols = X.shape[1]
-    logger.info("Filtros estatísticos — entrada: %d colunas.", initial_cols)
+    logger.info("Statistical filters — input: %d columns.", initial_cols)
 
     variances = X.var(axis=0, numeric_only=True)
     low_var_cols = variances[variances <= variance_threshold].index.tolist()
     X_step1 = X.drop(columns=low_var_cols)
     logger.info(
-        "  [1] Variância <= %g: %d colunas descartadas%s",
+        "  [1] Variance <= %g: %d columns dropped%s",
         variance_threshold,
         len(low_var_cols),
         (
@@ -124,7 +124,7 @@ def apply_statistical_filters(
     duplicate_cols = X_step1.columns[duplicated_mask].tolist()
     X_step2 = X_step1.drop(columns=duplicate_cols)
     logger.info(
-        "  [2] Duplicatas literais: %d colunas descartadas%s",
+        "  [2] Literal duplicates: %d columns dropped%s",
         len(duplicate_cols),
         f" ({duplicate_cols})" if duplicate_cols else "",
     )
@@ -136,7 +136,7 @@ def apply_statistical_filters(
     ]
     X_step3 = X_step2.drop(columns=high_corr_cols)
     logger.info(
-        "  [3] |ρ| > %.2f: %d colunas descartadas%s",
+        "  [3] |ρ| > %.2f: %d columns dropped%s",
         correlation_threshold,
         len(high_corr_cols),
         (
@@ -148,7 +148,7 @@ def apply_statistical_filters(
 
     kept = X_step3.columns
     logger.info(
-        "Filtros estatísticos — saída: %d colunas (%d removidas, %.1f%% do total).",
+        "Statistical filters — output: %d columns (%d removed, %.1f%% of total).",
         len(kept),
         initial_cols - len(kept),
         100 * (initial_cols - len(kept)) / initial_cols if initial_cols else 0.0,
@@ -182,8 +182,8 @@ def apply_contamination(
 
     if n_outliers_needed > len(X_outlier):
         logger.warning(
-            "Dados insuficientes para contaminação %.2f. "
-            "Usando máximo disponível (%d de %d necessários).",
+            "Insufficient data for contamination %.2f. "
+            "Using maximum available (%d of %d needed).",
             target_contamination,
             len(X_outlier),
             n_outliers_needed,
@@ -224,11 +224,31 @@ def prepare_splits(
     correlation_threshold: float = 0.95,
     pca_reduce: Optional[int] = None,
     domain_features: Optional[list[str]] = None,
+    feature_whitelist: Optional[list[str]] = None,
+    temporal_split: bool = False,
 ) -> SplitData:
     from niod.utils.domain_features import add_domain_features
 
     if domain_features:
         df = add_domain_features(df, features=domain_features)
+
+    if feature_whitelist:
+        missing = [c for c in feature_whitelist if c not in df.columns]
+        if missing:
+            available = [c for c in df.columns if c != label_column]
+            raise ValueError(
+                f"--feature-whitelist: columns not found after generating features: "
+                f"{missing}.\nAvailable ({len(available)}): {sorted(available)}"
+            )
+        df = df[list(feature_whitelist) + [label_column]]
+        logger.info(
+            "Feature whitelist active: keeping %d column(s) %s. "
+            "Statistical filters will be IGNORED (whitelist takes priority).",
+            len(feature_whitelist),
+            list(feature_whitelist),
+        )
+        apply_filters = False
+
     from sklearn.model_selection import train_test_split
 
     X = df.drop(columns=[label_column])
@@ -238,12 +258,17 @@ def prepare_splits(
     test_ratio_in_temp = 0.75
 
     if novelty or algorithm == "svm":
+        if temporal_split:
+            logger.warning(
+                "temporal_split ignored in novelty/svm mode (uses _split_novelty)."
+            )
         splits = _split_novelty(
             df, label_column, train_size, test_ratio_in_temp, random_state
         )
     else:
         splits = _split_standard(
-            X, y, train_size, test_ratio_in_temp, random_state, contamination
+            X, y, train_size, test_ratio_in_temp, random_state, contamination,
+            temporal_split=temporal_split,
         )
 
     X_train, X_val, X_test = splits["X_train"], splits["X_val"], splits["X_test"]
@@ -257,7 +282,7 @@ def prepare_splits(
         "X_test:  %s", X_test.shape if hasattr(X_test, "shape") else len(X_test)
     )
     logger.info(
-        "Proporção outliers — Treino: %.4f | Val: %.4f | Teste: %.4f",
+        "Outlier proportion — Train: %.4f | Val: %.4f | Test: %.4f",
         np.mean(y_train),
         np.mean(y_val),
         np.mean(y_test),
@@ -299,7 +324,7 @@ def prepare_splits(
         n_features_in = X_train.shape[1]
         if pca_reduce >= n_features_in:
             logger.warning(
-                "pca_reduce=%d >= n_features=%d. Pulando PCA.",
+                "pca_reduce=%d >= n_features=%d. Skipping PCA.",
                 pca_reduce,
                 n_features_in,
             )
@@ -310,7 +335,7 @@ def prepare_splits(
             X_test = pca_model.transform(X_test)
             explained = pca_model.explained_variance_ratio_.sum()
             logger.info(
-                "PCA aplicado: %d → %d componentes (%.2f%% da variância retida).",
+                "PCA applied: %d → %d components (%.2f%% of variance retained).",
                 n_features_in,
                 pca_reduce,
                 explained * 100,
@@ -344,15 +369,15 @@ def _split_novelty(
 
     temp_size = 1.0 - train_size
 
-    X_normais = df[df[label_column] == 0].drop(columns=[label_column]).values
+    X_normal = df[df[label_column] == 0].drop(columns=[label_column]).values
     X_outliers = df[df[label_column] == 1].drop(columns=[label_column]).values
-    y_normais = df[df[label_column] == 0][label_column].values
+    y_normal = df[df[label_column] == 0][label_column].values
     y_outliers = df[df[label_column] == 1][label_column].values
 
-    logger.info("Normais: %d | Outliers: %d", len(X_normais), len(X_outliers))
+    logger.info("Normal: %d | Outliers: %d", len(X_normal), len(X_outliers))
 
     X_train, X_temp_n, y_train, y_temp_n = train_test_split(
-        X_normais, y_normais, test_size=temp_size, random_state=random_state
+        X_normal, y_normal, test_size=temp_size, random_state=random_state
     )
     X_val_n, X_test_n, y_val_n, y_test_n = train_test_split(
         X_temp_n, y_temp_n, test_size=test_ratio, random_state=random_state
@@ -390,28 +415,64 @@ def _split_standard(
     test_ratio: float,
     random_state: int,
     contamination: Optional[float],
+    *,
+    temporal_split: bool = False,
 ) -> dict[str, np.ndarray | pd.DataFrame]:
     from sklearn.model_selection import train_test_split
 
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X, y, train_size=train_size, random_state=random_state, stratify=y
-    )
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=test_ratio, random_state=random_state, stratify=y_temp
-    )
+    if temporal_split:
+        # Positional split (temporal proxy): preserves the row order, which in
+        # CICIDS is episodic (contiguous attack bursts). Train = start,
+        # validation = middle, test = end — no twin flows from the same episode
+        # crossing between train and test. Without a timestamp in the ARFF, this
+        # is the best proxy.
+        n = len(X)
+        n_train = int(n * train_size)
+        n_temp = n - n_train
+        n_test = int(n_temp * test_ratio)
+        n_val_end = n_train + (n_temp - n_test)
+        X_train, y_train = X.iloc[:n_train], y.iloc[:n_train]
+        X_val, y_val = X.iloc[n_train:n_val_end], y.iloc[n_train:n_val_end]
+        X_test, y_test = X.iloc[n_val_end:], y.iloc[n_val_end:]
+        logger.info(
+            "POSITIONAL split (temporal proxy): order preserved, no shuffle/stratify."
+        )
+        for name, ys in (("train", y_train), ("val", y_val), ("test", y_test)):
+            if ys.nunique() < 2:
+                logger.warning(
+                    "Temporal split: '%s' has only one class (%s) — unstable metrics.",
+                    name,
+                    ys.unique().tolist(),
+                )
+    else:
+        X_train, X_temp, y_train, y_temp = train_test_split(
+            X, y, train_size=train_size, random_state=random_state, stratify=y
+        )
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_temp, y_temp, test_size=test_ratio, random_state=random_state, stratify=y_temp
+        )
 
     if contamination is not None:
+        # Contamination (subsampling of outliers down to the target rate) applied
+        # ONLY to the train set. Validation and test remain in the ORIGINAL
+        # distribution — altering the test prevalence would fabricate the final
+        # metric (same principle as SMOTE train-only). Previously it was applied
+        # to all three splits (distribution leakage); fixed.
+        n_atk_val, n_atk_test = int(np.sum(y_val)), int(np.sum(y_test))
         X_train, y_train = apply_contamination(
             X_train, y_train, contamination, random_state
         )
-        X_val, y_val = apply_contamination(X_val, y_val, contamination, random_state)
-        X_test, y_test = apply_contamination(
-            X_test, y_test, contamination, random_state
+        logger.info(
+            "Contamination %.3f applied ONLY to the train set. Val/test keep the "
+            "real distribution (val: %d attacks, test: %d attacks).",
+            contamination,
+            n_atk_val,
+            n_atk_test,
         )
 
     total = len(X_train) + len(X_val) + len(X_test)
     logger.info(
-        "Split — Treino: %d (%.0f%%) | Val: %d (%.0f%%) | Teste: %d (%.0f%%)",
+        "Split — Train: %d (%.0f%%) | Val: %d (%.0f%%) | Test: %d (%.0f%%)",
         len(X_train),
         100 * len(X_train) / total,
         len(X_val),
@@ -442,7 +503,7 @@ def load_extra_normal(
 ) -> np.ndarray:
     from niod.utils.domain_features import add_domain_features
 
-    logger.info("Carregando normais extras de: %s", extra_path)
+    logger.info("Loading extra normal samples from: %s", extra_path)
     df = load_arff(extra_path)
 
     if domain_features:
@@ -451,10 +512,10 @@ def load_extra_normal(
     if label_column in df.columns:
         df = df[df[label_column] == 0].drop(columns=[label_column])
     else:
-        logger.warning("Coluna '%s' não encontrada em %s — usando todas as linhas.", label_column, extra_path)
+        logger.warning("Column '%s' not found in %s — using all rows.", label_column, extra_path)
 
     if len(df) == 0:
-        logger.warning("Nenhuma amostra normal encontrada em %s.", extra_path)
+        logger.warning("No normal samples found in %s.", extra_path)
         return np.empty((0, len(feature_columns)))
 
     df = df.replace([np.inf, -np.inf], np.nan)
@@ -472,7 +533,7 @@ def load_extra_normal(
         X = pca.transform(X)
 
     X_arr = np.asarray(X)
-    logger.info("Normais extras carregadas: %d amostras", len(X_arr))
+    logger.info("Extra normal samples loaded: %d samples", len(X_arr))
     return X_arr
 
 
@@ -510,10 +571,10 @@ def prepare_data_for_visualization(
     if len(X_att) > sample_size:
         X_att = X_att.sample(n=sample_size, random_state=42)
     elif len(X_att) == 0:
-        logger.warning("Nenhum ataque encontrado em %s!", label_desc)
+        logger.warning("No attacks found in %s!", label_desc)
 
     logger.info(
-        "%s — Normais: %d | Ataques: %d",
+        "%s — Normal: %d | Attacks: %d",
         label_desc,
         len(X_norm),
         len(X_att),

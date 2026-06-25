@@ -24,7 +24,7 @@ def _safe_div(num: pd.Series, den: pd.Series) -> pd.Series:
 def _has_cols(df: pd.DataFrame, cols: list[str]) -> bool:
     missing = [c for c in cols if c not in df.columns]
     if missing:
-        logger.debug("Colunas ausentes (pulando feature): %s", missing)
+        logger.debug("Missing columns (skipping feature): %s", missing)
         return False
     return True
 
@@ -230,6 +230,79 @@ def _add_eng_flow_rates(df: pd.DataFrame) -> list[str]:
     return added
 
 
+def _add_eng_brute_force(df: pd.DataFrame) -> list[str]:
+    """Per-flow features that capture the signature of brute-force attacks
+    (FTP/SSH-Patator): small and uniform packets, regular timing from an
+    automated tool, request/response symmetry and high header overhead."""
+    added = []
+
+    # Packet size uniformity per direction (automated auth → low CV)
+    if _has_cols(df, ["Fwd Packet Length Std", "Fwd Packet Length Mean"]):
+        df["fwd_pktlen_cv"] = _safe_div(
+            df["Fwd Packet Length Std"], df["Fwd Packet Length Mean"]
+        )
+        added.append("fwd_pktlen_cv")
+
+    if _has_cols(df, ["Bwd Packet Length Std", "Bwd Packet Length Mean"]):
+        df["bwd_pktlen_cv"] = _safe_div(
+            df["Bwd Packet Length Std"], df["Bwd Packet Length Mean"]
+        )
+        added.append("bwd_pktlen_cv")
+
+    # Normalized size spread (fixed sizes → small range)
+    if _has_cols(df, ["Max Packet Length", "Min Packet Length", "Packet Length Mean"]):
+        df["pktlen_range_ratio"] = _safe_div(
+            df["Max Packet Length"] - df["Min Packet Length"],
+            df["Packet Length Mean"],
+        )
+        added.append("pktlen_range_ratio")
+
+    # Request/response symmetry (credential → rejection)
+    if _has_cols(df, ["Fwd Packet Length Mean", "Bwd Packet Length Mean"]):
+        df["fwd_bwd_pktlen_ratio"] = _safe_div(
+            df["Fwd Packet Length Mean"], df["Bwd Packet Length Mean"]
+        )
+        added.append("fwd_bwd_pktlen_ratio")
+
+    # Bidirectional byte balance (challenge-response ≈ symmetric)
+    if _has_cols(df, ["Subflow Fwd Bytes", "Subflow Bwd Bytes"]):
+        total_b = df["Subflow Fwd Bytes"] + df["Subflow Bwd Bytes"]
+        df["byte_symmetry"] = _safe_div(
+            (df["Subflow Fwd Bytes"] - df["Subflow Bwd Bytes"]).abs(), total_b
+        )
+        added.append("byte_symmetry")
+
+    # Average payload per packet (handshake only → small)
+    if _has_cols(df, ["Subflow Fwd Bytes", "Subflow Bwd Bytes", COL_FWD_PKTS, COL_BWD_PKTS]):
+        total_pkts = df[COL_FWD_PKTS] + df[COL_BWD_PKTS]
+        df["bytes_per_pkt"] = _safe_div(
+            df["Subflow Fwd Bytes"] + df["Subflow Bwd Bytes"], total_pkts
+        )
+        added.append("bytes_per_pkt")
+
+    # Timing regularity (automated tool → stable IAT)
+    if _has_cols(df, ["Flow IAT Min", "Flow IAT Max"]):
+        df["iat_min_max_ratio"] = _safe_div(df["Flow IAT Min"], df["Flow IAT Max"])
+        added.append("iat_min_max_ratio")
+
+    # Active time fraction (short attempt, little idle)
+    if _has_cols(df, ["Active Mean", "Idle Mean"]):
+        df["active_burst_ratio"] = _safe_div(
+            df["Active Mean"], df["Active Mean"] + df["Idle Mean"]
+        )
+        added.append("active_burst_ratio")
+
+    # Header overhead (small flows are header-heavy)
+    if _has_cols(df, ["Fwd Header Length", "Bwd Header Length", "Subflow Fwd Bytes", "Subflow Bwd Bytes"]):
+        df["header_overhead"] = _safe_div(
+            df["Fwd Header Length"] + df["Bwd Header Length"],
+            df["Subflow Fwd Bytes"] + df["Subflow Bwd Bytes"],
+        )
+        added.append("header_overhead")
+
+    return added
+
+
 DOMAIN_FEATURES: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "Eng_Packet_Shape": _add_eng_packet_shape,
     "Eng_Fwd_Header_Load": _add_eng_fwd_header_load,
@@ -237,6 +310,7 @@ DOMAIN_FEATURES: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "Eng_Flag_Density": _add_eng_flag_density,
     "Eng_Flow_Indicators": _add_eng_flow_indicators,
     "Eng_Flow_Rates": _add_eng_flow_rates,
+    "Eng_BruteForce": _add_eng_brute_force,
 }
 
 
@@ -291,6 +365,17 @@ GROUP_FEATURES: dict[str, list[str]] = {
         "byte_rate",
         "fwd_byte_rate",
     ],
+    "Eng_BruteForce": [
+        "fwd_pktlen_cv",
+        "bwd_pktlen_cv",
+        "pktlen_range_ratio",
+        "fwd_bwd_pktlen_ratio",
+        "byte_symmetry",
+        "bytes_per_pkt",
+        "iat_min_max_ratio",
+        "active_burst_ratio",
+        "header_overhead",
+    ],
 }
 
 FEATURE_TO_GROUP: dict[str, str] = {
@@ -316,8 +401,8 @@ def add_domain_features(
             requested_features.add(name)
         else:
             logger.warning(
-                "[domain_features] Nome desconhecido '%s' — ignorando. "
-                "Grupos: %s | Features: %s",
+                "[domain_features] Unknown name '%s' — ignoring. "
+                "Groups: %s | Features: %s",
                 name,
                 list(DOMAIN_FEATURES.keys()),
                 list(FEATURE_TO_GROUP.keys()),
@@ -332,11 +417,11 @@ def add_domain_features(
 
     logger.info("=" * 70)
     logger.info(
-        "[domain_features] Grupos: %s | Features avulsas: %s",
+        "[domain_features] Groups: %s | Individual features: %s",
         sorted(requested_groups),
         sorted(requested_features),
     )
-    logger.info("[domain_features] Shape de entrada: %s", df.shape)
+    logger.info("[domain_features] Input shape: %s", df.shape)
 
     df = df.copy()
     n_before = df.shape[1]
@@ -347,7 +432,7 @@ def add_domain_features(
             added = DOMAIN_FEATURES[group](df)
             produced[group] = added
             logger.info(
-                "[domain_features] %s: %d features computadas (%s)",
+                "[domain_features] %s: %d features computed (%s)",
                 group,
                 len(added),
                 added,
@@ -366,7 +451,7 @@ def add_domain_features(
     if to_drop:
         df = df.drop(columns=to_drop)
         logger.info(
-            "[domain_features] Descartadas %d features não solicitadas (%s)",
+            "[domain_features] Dropped %d unrequested features (%s)",
             len(to_drop),
             to_drop,
         )
@@ -376,13 +461,13 @@ def add_domain_features(
     }
     if not_produced:
         logger.warning(
-            "[domain_features] Features pedidas mas não produzidas "
-            "(colunas de origem ausentes?): %s",
+            "[domain_features] Features requested but not produced "
+            "(source columns missing?): %s",
             sorted(not_produced),
         )
 
     logger.info(
-        "[domain_features] Total: %d novas features. Shape de saída: %s",
+        "[domain_features] Total: %d new features. Output shape: %s",
         df.shape[1] - n_before,
         df.shape,
     )
