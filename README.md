@@ -1,13 +1,8 @@
 # NIOD — Network Intrusion Outlier Detection
 
-<<<<<<< Updated upstream
-Framework para detecção de anomalias em tráfego de rede usando técnicas de
-**novelty/outlier detection** (não supervisionado) e **classificação supervisionada**,
-=======
 Framework for anomaly detection in network traffic using
 **novelty/outlier detection** (unsupervised) and **supervised classification** techniques,
 focused on evaluating generalization under *concept drift* (CICIDS Friday → Tuesday).
->>>>>>> Stashed changes
 
 ## Architecture
 
@@ -44,8 +39,13 @@ scripts/
 
 - Python **>= 3.10**
 - The `.arff` datasets in the `data/` folder (not versioned). By default, the pipeline expects:
-  - `data/Friday_balanceado.arff` — training dataset
+  - `data/Friday.arff` — training dataset (RAW / imbalanced — see note below)
   - `data/Tuesday.arff` — target dataset for generalization / few-shot evaluation
+
+> **Use the raw dataset for training.** SMOTE is applied internally, on the training
+> split only, *after* the train/val/test split. Passing a pre-balanced file (e.g. a
+> `*_balanceado.arff`) as `--train-dataset` would leak synthetic samples into
+> validation/test and inflate metrics.
 
 ### 2. Installation
 
@@ -68,11 +68,14 @@ matplotlib, joblib, tqdm, xgboost, imbalanced-learn).
 ### 3. Unsupervised pipeline (outlier/novelty detection)
 
 ```bash
-# Full pipeline (default: Isolation Forest + novelty + grid search)
+# Full pipeline (default: Isolation Forest, novelty mode, no hyperparameter search)
 python -m niod
 
-# One-Class SVM without hyperparameter search
-python -m niod --algorithm svm --no-hyper-search
+# Enable hyperparameter (grid) search
+python -m niod --hyper-search
+
+# One-Class SVM
+python -m niod --algorithm svm
 
 # LOF in outlier mode (no novelty) with custom contamination
 python -m niod --algorithm lof --no-novelty --contamination 0.15
@@ -80,15 +83,21 @@ python -m niod --algorithm lof --no-novelty --contamination 0.15
 # Evaluate generalization with unsupervised few-shot (5% of the target's normals in training)
 python -m niod --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
 
+# Enrich training with extra normal samples from another dataset (no refit of preprocessing)
+python -m niod --extra-normal-dataset data/Tuesday.arff
+
 # Add domain features (groups or individual features)
 python -m niod --domain-features Eng_Flag_Density Eng_Flow_Rates
 python -m niod --all-domain-features
 
+# Train using ONLY a fixed set of columns (bypasses the statistical filters)
+python -m niod --feature-whitelist fwd_header_to_payload_ratio "ACK Flag Count"
+
 # Dimensionality reduction via PCA (fitted on training only)
 python -m niod --pca-reduce 16
 
-# Skip visualizations
-python -m niod --skip-pca --skip-pca-cross
+# Generate PCA visualizations (off by default)
+python -m niod --plot-pca --plot-pca-cross
 
 # Debug
 python -m niod --log-level DEBUG
@@ -97,14 +106,24 @@ python -m niod --log-level DEBUG
 ### 4. Supervised pipeline (classification)
 
 ```bash
-# Classification with XGBoost + grid search
+# Classification with XGBoost (no hyperparameter search by default)
 python -m niod.classify
+
+# Enable hyperparameter (grid) search
+python -m niod.classify --hyper-search
 
 # Supervised few-shot: injects a fraction of the target's attacks into training
 python -m niod.classify --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
 
-# With domain features and without hyperparameter search
-python -m niod.classify --all-domain-features --no-hyper-search
+# Positional (temporal-proxy) split instead of random — avoids leaking twin flows
+# from the same attack episode between train and test
+python -m niod.classify --temporal-split
+
+# Train on the real imbalance (disable SMOTE)
+python -m niod.classify --no-smote
+
+# With domain features
+python -m niod.classify --all-domain-features
 ```
 
 ### 5. Helper scripts
@@ -114,7 +133,7 @@ python -m niod.classify --all-domain-features --no-hyper-search
 python scripts/check_balancing.py --smote
 
 # Generate PCA scree plot + cumulative variance (saved to docs/)
-python scripts/generate_scree_pca.py --train-dataset data/Friday_balanceado.arff
+python scripts/generate_scree_pca.py --train-dataset data/Friday.arff
 ```
 
 ### 6. Outputs
@@ -122,8 +141,8 @@ python scripts/generate_scree_pca.py --train-dataset data/Friday_balanceado.arff
 - **Metrics** (F1, classification report, confusion matrix) are printed via `logging`
   to the terminal — adjust verbosity with `--log-level`.
 - **PCA figures** (`pca_2d_test_*.png`, `pca_cross_*.png`) are saved to the execution
-  directory. With `--pca-cross-interactive`, a rotatable HTML is generated (requires the
-  `interactive` extra).
+  directory when `--plot-pca` / `--plot-pca-cross` are enabled. With
+  `--pca-cross-interactive`, a rotatable HTML is generated (requires the `interactive` extra).
 - The helper scripts' figures (`pca_scree.png`, `pca_cumulativa.png`) go to `docs/`.
 
 > The `data/`, `results/`, `*.png` directories and build artifacts are ignored by git.
@@ -158,22 +177,4 @@ Available engineered groups (via `--domain-features <GROUP>` or `--all-domain-fe
 `Eng_Packet_Shape`, `Eng_Fwd_Header_Load`, `Eng_Temporal_Burstiness`,
 `Eng_Flag_Density`, `Eng_Flow_Indicators`, `Eng_Flow_Rates`.
 
-<<<<<<< Updated upstream
-Também é possível ativar features individuais (ex.: `--domain-features is_short_flow is_unidirectional`).
-=======
 You can also enable individual features (e.g.: `--domain-features is_short_flow is_unidirectional`).
-
-## Engineering principles
-
-### Data integrity
-- **No data leakage**: scaler/imputer/PCA fitted ONLY on training and applied to validation/test/generalization.
-- **Encapsulated state** in dataclasses (`ExperimentConfig`, `EvaluationResult`, `SplitData`).
-
-### Reproducibility
-- `random_state` propagated consistently across splits and models.
-- Centralized configuration in `ExperimentConfig` (no hardcoded values).
-
-### Performance
-- Parallel grid search with `joblib` + `tqdm`.
-- Figures closed after saving (`plt.close()`) to avoid memory leaks.
->>>>>>> Stashed changes
