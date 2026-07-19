@@ -136,11 +136,11 @@ python -m niod.classify --help
 
 ### Unsupervised
 
-| Algorithm            | Key                | Novelty Mode | Outlier Mode |
-|----------------------|--------------------|:------------:|:------------:|
-| Isolation Forest     | `isolation_forest` | ✅           | ✅           |
-| Local Outlier Factor | `lof`              | ✅           | ✅           |
-| One-Class SVM        | `svm`              | ✅           | —           |
+| Algorithm            | Key                | Novelty Mode |
+|----------------------|--------------------|:------------:|
+| Isolation Forest     | `isolation_forest` | ✅           |
+| Local Outlier Factor | `lof`              | ✅           |
+| One-Class SVM        | `svm`              | ✅           |
 
 ### Supervised
 
