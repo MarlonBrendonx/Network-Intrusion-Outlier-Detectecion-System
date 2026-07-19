@@ -72,14 +72,11 @@ python -m niod --hyper-search
 # One-Class SVM
 python -m niod --algorithm svm
 
-# LOF in outlier mode (no novelty) with custom contamination
-python -m niod --algorithm lof --no-novelty --contamination 0.15
-
 # Add domain features (groups or individual features)
 python -m niod --domain-features Eng_Flag_Density Eng_Flow_Rates
 python -m niod --all-domain-features
 
-# Train using ONLY a fixed set of columns (bypasses the statistical filters)
+# Train using ONLY a fixed set of columns 
 python -m niod --feature-whitelist fwd_header_to_payload_ratio "ACK Flag Count"
 
 # Dimensionality reduction via PCA (fitted on training only)
