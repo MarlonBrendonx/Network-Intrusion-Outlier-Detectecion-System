@@ -37,6 +37,7 @@ class ExperimentConfig:
     pca_reduce: int | None = None
     domain_features: list[str] | None = None
     feature_whitelist: list[str] | None = None
+    max_active_time: float | None = None
 
     train_size: float = 0.6
     val_ratio: float = 0.25
@@ -50,8 +51,10 @@ class ExperimentConfig:
                 f"contamination must be in (0, 1), got: {self.contamination}"
             )
         if not 0.0 < self.train_size < 1.0:
+            raise ValueError(f"train_size must be in (0, 1), got: {self.train_size}")
+        if self.max_active_time is not None and self.max_active_time <= 0:
             raise ValueError(
-                f"train_size must be in (0, 1), got: {self.train_size}"
+                f"max_active_time must be > 0 or None, got: {self.max_active_time}"
             )
 
     @property

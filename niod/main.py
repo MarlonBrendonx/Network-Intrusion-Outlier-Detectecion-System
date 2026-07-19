@@ -23,6 +23,7 @@ from niod.utils.data import (
     clean_dataframe,
     load_arff,
     prepare_splits,
+    trim_by_feature,
 )
 
 from niod.utils.data import load_extra_normal
@@ -69,7 +70,13 @@ def run_pipeline(config: ExperimentConfig) -> dict:
 
     df = load_arff(config.train_dataset)
     df, removed = clean_dataframe(df)
-    logger.info("Final shape: %s (removed %d rows)", df.shape, removed)
+    df, trimmed = trim_by_feature(df, "Active Max", config.max_active_time)
+    logger.info(
+        "Final shape: %s (removed %d invalid, %d long-active-flow rows)",
+        df.shape,
+        removed,
+        trimmed,
+    )
 
     logger.info("-" * 70)
     logger.info("Splitting data...")
@@ -120,10 +127,6 @@ def run_pipeline(config: ExperimentConfig) -> dict:
         params = _resolve_default_params(config)
         logger.info("Fixed parameters: %s", params)
 
-        # Evaluate on VALIDATION even without a grid: modeling decisions (PCA, domain
-        # features) should be made on the validation set, not the test set. Without this,
-        # the only number printed was the test one, inducing selection on the test
-        # set (review item 2). The test set is still evaluated only once.
         val_result = evaluate_model(
             model_factory,
             params,
@@ -685,6 +688,17 @@ def parse_args() -> argparse.Namespace:
         'spaces. Ex: --feature-whitelist fwd_header_to_payload_ratio "ACK Flag Count"',
     )
     parser.add_argument(
+        "--max-active-time",
+        type=float,
+        default=ExperimentConfig.max_active_time,
+        metavar="US",
+        help="Drop training rows with 'Active Max' > US microseconds "
+        "(long-active flows). A few normal Friday flows sit at ~110M µs (~100s) "
+        "and dominate the StandardScaler cross-domain PCA; e.g. "
+        "--max-active-time 50000000 removes them. Covers 'Active Min' too. "
+        f"Default: {ExperimentConfig.max_active_time} (from settings).",
+    )
+    parser.add_argument(
         "--extra-normal-dataset",
         type=Path,
         default=None,
@@ -740,6 +754,7 @@ def main() -> None:
         pca_reduce=pca_reduce_value,
         domain_features=domain_features_value,
         feature_whitelist=args.feature_whitelist,
+        max_active_time=args.max_active_time,
         extra_normal_dataset=args.extra_normal_dataset,
         few_shot_dataset=args.few_shot_dataset,
         few_shot_ratio=args.few_shot_ratio,

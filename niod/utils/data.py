@@ -74,6 +74,26 @@ def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return df, removed
 
 
+def trim_by_feature(
+    df: pd.DataFrame,
+    feature: str,
+    max_value: Optional[float],
+) -> tuple[pd.DataFrame, int]:
+    if max_value is None:
+        return df, 0
+    if feature not in df.columns:
+        logger.warning("Trim skipped: feature '%s' not found in dataframe.", feature)
+        return df, 0
+    before = len(df)
+    df = df[df[feature] <= max_value]
+    removed = before - len(df)
+    if removed > 0:
+        logger.info(
+            "Trim: removed %d rows with '%s' > %g.", removed, feature, max_value
+        )
+    return df, removed
+
+
 def clean_features(X: np.ndarray | pd.DataFrame) -> pd.DataFrame:
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)

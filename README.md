@@ -1,8 +1,7 @@
 # NIOD — Network Intrusion Outlier Detection
 
 Framework for anomaly detection in network traffic using
-**novelty/outlier detection** (unsupervised) and **supervised classification** techniques,
-focused on evaluating generalization under *concept drift* (CICIDS Friday → Tuesday).
+**novelty/outlier detection** (unsupervised) and **supervised classification** techniques
 
 ## Architecture
 
@@ -39,13 +38,9 @@ scripts/
 
 - Python **>= 3.10**
 - The `.arff` datasets in the `data/` folder (not versioned). By default, the pipeline expects:
-  - `data/Friday.arff` — training dataset (RAW / imbalanced — see note below)
-  - `data/Tuesday.arff` — target dataset for generalization / few-shot evaluation
+  - `data/Friday.arff`
+  - `data/Tuesday.arff`
 
-> **Use the raw dataset for training.** SMOTE is applied internally, on the training
-> split only, *after* the train/val/test split. Passing a pre-balanced file (e.g. a
-> `*_balanceado.arff`) as `--train-dataset` would leak synthetic samples into
-> validation/test and inflate metrics.
 
 ### 2. Installation
 
@@ -65,7 +60,7 @@ Installation registers the `niod` command (equivalent to `python -m niod`) and i
 dependencies declared in `pyproject.toml` (numpy, pandas, scikit-learn, scipy,
 matplotlib, joblib, tqdm, xgboost, imbalanced-learn).
 
-### 3. Unsupervised pipeline (outlier/novelty detection)
+### 3. Unsupervised pipeline
 
 ```bash
 # Full pipeline (default: Isolation Forest, novelty mode, no hyperparameter search)
@@ -79,12 +74,6 @@ python -m niod --algorithm svm
 
 # LOF in outlier mode (no novelty) with custom contamination
 python -m niod --algorithm lof --no-novelty --contamination 0.15
-
-# Evaluate generalization with unsupervised few-shot (5% of the target's normals in training)
-python -m niod --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
-
-# Enrich training with extra normal samples from another dataset (no refit of preprocessing)
-python -m niod --extra-normal-dataset data/Tuesday.arff
 
 # Add domain features (groups or individual features)
 python -m niod --domain-features Eng_Flag_Density Eng_Flow_Rates
@@ -109,12 +98,6 @@ python -m niod --log-level DEBUG
 # Classification with XGBoost (no hyperparameter search by default)
 python -m niod.classify
 
-# Enable hyperparameter (grid) search
-python -m niod.classify --hyper-search
-
-# Supervised few-shot: injects a fraction of the target's attacks into training
-python -m niod.classify --few-shot-dataset data/Tuesday.arff --few-shot-ratio 0.05
-
 # Positional (temporal-proxy) split instead of random — avoids leaking twin flows
 # from the same attack episode between train and test
 python -m niod.classify --temporal-split
@@ -122,8 +105,6 @@ python -m niod.classify --temporal-split
 # Train on the real imbalance (disable SMOTE)
 python -m niod.classify --no-smote
 
-# With domain features
-python -m niod.classify --all-domain-features
 ```
 
 ### 5. Helper scripts
@@ -143,7 +124,7 @@ python scripts/generate_scree_pca.py --train-dataset data/Friday.arff
 - **PCA figures** (`pca_2d_test_*.png`, `pca_cross_*.png`) are saved to the execution
   directory when `--plot-pca` / `--plot-pca-cross` are enabled. With
   `--pca-cross-interactive`, a rotatable HTML is generated (requires the `interactive` extra).
-- The helper scripts' figures (`pca_scree.png`, `pca_cumulativa.png`) go to `docs/`.
+- The helper scripts' figures (`pca_scree.png`, `pca_cumulative.png`) go to `docs/`.
 
 > The `data/`, `results/`, `*.png` directories and build artifacts are ignored by git.
 
@@ -169,12 +150,3 @@ python -m niod.classify --help
 | Algorithm | Key       |
 |-----------|-----------|
 | XGBoost   | `xgboost` |
-
-## Domain features
-
-Available engineered groups (via `--domain-features <GROUP>` or `--all-domain-features`):
-
-`Eng_Packet_Shape`, `Eng_Fwd_Header_Load`, `Eng_Temporal_Burstiness`,
-`Eng_Flag_Density`, `Eng_Flow_Indicators`, `Eng_Flow_Rates`.
-
-You can also enable individual features (e.g.: `--domain-features is_short_flow is_unidirectional`).

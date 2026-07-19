@@ -98,7 +98,7 @@ def main() -> None:
             arrowprops=dict(arrowstyle="->", color=color),
         )
     fig2.tight_layout()
-    out2 = args.output_dir / "pca_cumulativa.png"
+    out2 = args.output_dir / "pca_cumulative.png"
     fig2.savefig(out2, dpi=200, bbox_inches="tight")
     print(f"Figure saved to: {out2}")
 

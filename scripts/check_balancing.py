@@ -134,7 +134,7 @@ def main() -> None:
         "--output",
         type=Path,
         default=None,
-        help="Output of the balanced .arff (default: <dataset>_balanceado.arff).",
+        help="Output of the balanced .arff (default: <dataset>_balanced.arff).",
     )
     parser.add_argument(
         "--random-state",
@@ -173,7 +173,7 @@ def main() -> None:
     print_table("Distribution after SMOTE", table_smote)
 
     output = args.output or args.dataset.with_name(
-        f"{args.dataset.stem}_balanceado.arff"
+        f"{args.dataset.stem}_balanced.arff"
     )
     header_lines, attributes = read_arff_header(args.dataset)
     write_arff(output, header_lines, attributes, X_resampled, y_resampled)

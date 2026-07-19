@@ -299,7 +299,7 @@ def _plot_pca_cross_static(
         f"Feature Space Visualization ({n_components}D): {train_label} vs {gen_label}\n"
         f"(total explained variance: {explained.sum():.1%})"
     )
-    ax.legend(loc="best", framealpha=0.9, fontsize=9)
+    ax.legend(loc="upper left", framealpha=0.9, fontsize=9)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=120, bbox_inches="tight")
