@@ -37,10 +37,11 @@ scripts/
 ### 1. Requirements
 
 - Python **>= 3.10**
-- The `.arff` datasets in the `data/` folder (not versioned). By default, the pipeline expects:
+- The `.arff` datasets must be placed in the `data/` folder. By default, the pipeline expects:
   - `data/Friday.arff`
   - `data/Tuesday.arff`
 
+The datasets are available on [Google Drive](https://drive.google.com/drive/folders/1U0Lo8EI3TWaGTjXL9Ops_ALOpPy58WhQ?usp=drive_link) and were originally obtained from the [CICIDS2017 dataset](https://www.unb.ca/cic/datasets/ids-2017.html), provided by the Canadian Institute for Cybersecurity (CIC), University of New Brunswick.
 
 ### 2. Installation
 
@@ -76,7 +77,7 @@ python -m niod --algorithm svm
 python -m niod --domain-features Eng_Flag_Density Eng_Flow_Rates
 python -m niod --all-domain-features
 
-# Train using ONLY a fixed set of columns 
+# Train using ONLY a fixed set of columns
 python -m niod --feature-whitelist fwd_header_to_payload_ratio "ACK Flag Count"
 
 # Dimensionality reduction via PCA (fitted on training only)
@@ -137,13 +138,13 @@ python -m niod.classify --help
 ### Unsupervised
 
 | Algorithm            | Key                | Novelty Mode |
-|----------------------|--------------------|:------------:|
-| Isolation Forest     | `isolation_forest` | ✅           |
-| Local Outlier Factor | `lof`              | ✅           |
-| One-Class SVM        | `svm`              | ✅           |
+| -------------------- | ------------------ | :----------: |
+| Isolation Forest     | `isolation_forest` |      ✅      |
+| Local Outlier Factor | `lof`              |      ✅      |
+| One-Class SVM        | `svm`              |      ✅      |
 
 ### Supervised
 
 | Algorithm | Key       |
-|-----------|-----------|
+| --------- | --------- |
 | XGBoost   | `xgboost` |
